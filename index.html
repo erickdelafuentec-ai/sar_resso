@@ -1271,22 +1271,73 @@ async function sb_guardarAuditoria(aud){
       result = data;
     }
     
-    // Guardar hijos: hallazgos, plan
-    // Por simplicidad usamos delete + insert (en producción sería upsert)
+    // Hallazgos: estrategia inteligente para preservar IDs (y por tanto fotos)
     if(aud.supabase_id){
-      await sb.from('auditoria_hallazgos').delete().eq('auditoria_id', aud.supabase_id);
-      if((aud.hallazgos||[]).length){
-        const hRows = aud.hallazgos.map(h => ({
-          auditoria_id: aud.supabase_id,
-          nivel: h.nivel || 1,
-          tipo: h.tipo || 'Terreno',
-          descripcion: h.descripcion || '',
-          descuento: h.descuento || 0,
-          registrado_por: userId,
-        }));
-        await sb.from('auditoria_hallazgos').insert(hRows);
+      // 1) Obtener hallazgos existentes en la nube
+      const { data: existentes } = await sb.from('auditoria_hallazgos')
+        .select('id, nivel, tipo, descripcion').eq('auditoria_id', aud.supabase_id);
+      const existentesMap = new Map((existentes || []).map(h => [
+        `${h.nivel}|${h.tipo}|${(h.descripcion||'').slice(0,100)}`,
+        h.id
+      ]));
+      
+      // 2) Para cada hallazgo local, decidir si update o insert
+      const aActualizar = [];
+      const aInsertar = [];
+      const idsManener = new Set();
+      
+      (aud.hallazgos || []).forEach(h => {
+        const key = `${h.nivel || 1}|${h.tipo || 'Terreno'}|${(h.descripcion || '').slice(0,100)}`;
+        const supId = h.supabase_id || existentesMap.get(key);
+        if(supId){
+          aActualizar.push({
+            id: supId,
+            nivel: h.nivel || 1,
+            tipo: h.tipo || 'Terreno',
+            descripcion: h.descripcion || '',
+            descuento: h.descuento || 0,
+          });
+          idsManener.add(supId);
+          h.supabase_id = supId; // preservar en el objeto local
+        } else {
+          aInsertar.push({
+            auditoria_id: aud.supabase_id,
+            nivel: h.nivel || 1,
+            tipo: h.tipo || 'Terreno',
+            descripcion: h.descripcion || '',
+            descuento: h.descuento || 0,
+            registrado_por: userId,
+          });
+        }
+      });
+      
+      // 3) Borrar solo los que ya no están
+      const idsABorrar = (existentes || []).map(h => h.id).filter(id => !idsManener.has(id));
+      if(idsABorrar.length > 0){
+        await sb.from('auditoria_hallazgos').delete().in('id', idsABorrar);
       }
       
+      // 4) Actualizar los que cambiaron
+      for(const upd of aActualizar){
+        await sb.from('auditoria_hallazgos').update(upd).eq('id', upd.id);
+      }
+      
+      // 5) Insertar los nuevos y guardar sus IDs
+      if(aInsertar.length > 0){
+        const { data: insertados } = await sb.from('auditoria_hallazgos').insert(aInsertar).select();
+        if(insertados){
+          // Vincular los IDs nuevos con los hallazgos locales (en el orden de inserción)
+          let j = 0;
+          aud.hallazgos.forEach(h => {
+            if(!h.supabase_id && j < insertados.length){
+              h.supabase_id = insertados[j].id;
+              j++;
+            }
+          });
+        }
+      }
+      
+      // Plan de acción (delete+insert porque no tiene relaciones externas)
       await sb.from('auditoria_plan').delete().eq('auditoria_id', aud.supabase_id);
       if((aud.plan||[]).length){
         const pRows = aud.plan.map(p => ({
@@ -1343,7 +1394,7 @@ async function sb_cargarAuditorias(){
         bonificacionISO: a.bonificacion_iso, clasificacion: a.clasificacion,
       },
       hallazgos: (hallazgos||[]).filter(h=>h.auditoria_id===a.id).map(h=>({
-        id: 'h-sb-'+h.id.slice(0,8), nivel:h.nivel, tipo:h.tipo, 
+        id: 'h-sb-'+h.id.slice(0,8), supabase_id: h.id, nivel:h.nivel, tipo:h.tipo, 
         descripcion:h.descripcion, descuento:Number(h.descuento)
       })),
       plan: (plan||[]).filter(p=>p.auditoria_id===a.id).map(p=>({
@@ -1582,6 +1633,319 @@ async function sb_cargarDashboardEjecutivo(){
     toast('Error cargando datos del dashboard: '+(e.message||e), 'bad');
     return null;
   }
+}
+
+// ============================================================
+//  SISTEMA DE FOTOS - Evidencias de Hallazgos
+// ============================================================
+
+const BUCKET_FOTOS = 'evidencias-hallazgos';
+let _fotosCache = {}; // {hallazgo_id: [fotos]}
+let _fotosHallazgoActual = null; // hallazgo abierto en galería
+
+async function cargarFotosDeHallazgo(hallazgoId){
+  if(!modoOnline() || !hallazgoId) return [];
+  try {
+    const { data, error } = await sb
+      .from('hallazgo_fotos')
+      .select('*')
+      .eq('hallazgo_id', hallazgoId)
+      .order('subida_en', { ascending: false });
+    if(error) throw error;
+    _fotosCache[hallazgoId] = data || [];
+    return data || [];
+  } catch(e){
+    console.warn('[Fotos] Error cargando fotos:', e);
+    return [];
+  }
+}
+
+async function cargarTodasFotosAuditoria(){
+  // Carga el conteo de fotos para todos los hallazgos de la auditoría actual
+  if(!modoOnline()) return;
+  const aud = state.auditoria;
+  if(!aud || !aud.hallazgos) return;
+  // Recolectar todos los IDs de hallazgo (incluyendo supabase_id si existe)
+  const ids = aud.hallazgos
+    .map(h => h.supabase_id || h.id)
+    .filter(id => id && id.length > 20); // solo UUIDs reales
+  if(ids.length === 0) return;
+  try {
+    const { data, error } = await sb
+      .from('hallazgo_fotos')
+      .select('*')
+      .in('hallazgo_id', ids);
+    if(error) throw error;
+    // Agrupar por hallazgo_id
+    _fotosCache = {};
+    (data || []).forEach(f => {
+      if(!_fotosCache[f.hallazgo_id]) _fotosCache[f.hallazgo_id] = [];
+      _fotosCache[f.hallazgo_id].push(f);
+    });
+  } catch(e){
+    console.warn('[Fotos] Error cargando fotos de auditoría:', e);
+  }
+}
+
+async function subirFoto(hallazgoId, file, descripcion){
+  if(!modoOnline()) { toast('Sin conexión a Supabase', 'bad'); return null; }
+  if(!file) return null;
+  if(!file.type.startsWith('image/')){ toast('Solo se aceptan imágenes', 'bad'); return null; }
+  if(file.size > 5 * 1024 * 1024){ toast('Imagen muy grande (máx 5 MB)', 'bad'); return null; }
+  
+  try {
+    // Generar nombre único: hallazgoId/timestamp_random.ext
+    const ext = (file.name.split('.').pop() || 'jpg').toLowerCase();
+    const fileName = `${hallazgoId}/${Date.now()}_${Math.random().toString(36).slice(2,8)}.${ext}`;
+    
+    // Subir a Storage
+    const { error: upErr } = await sb.storage
+      .from(BUCKET_FOTOS)
+      .upload(fileName, file, {
+        cacheControl: '3600',
+        upsert: false,
+        contentType: file.type,
+      });
+    if(upErr) throw upErr;
+    
+    // Obtener URL pública
+    const { data: urlData } = sb.storage.from(BUCKET_FOTOS).getPublicUrl(fileName);
+    const publicUrl = urlData.publicUrl;
+    
+    // Insertar metadata en la tabla
+    const { data, error: dbErr } = await sb.from('hallazgo_fotos').insert({
+      hallazgo_id: hallazgoId,
+      url: publicUrl,
+      storage_path: fileName,
+      descripcion: descripcion || '',
+      subida_por: state.user.id,
+      tamano_bytes: file.size,
+      metadata: {
+        nombre_original: file.name,
+        tipo: file.type,
+      },
+    }).select().single();
+    
+    if(dbErr) throw dbErr;
+    return data;
+  } catch(e){
+    console.error('[Fotos] Error subiendo foto:', e);
+    toast('Error subiendo foto: '+(e.message||e), 'bad');
+    return null;
+  }
+}
+
+async function eliminarFoto(fotoId, storagePath){
+  if(!modoOnline()) return false;
+  if(!confirm('¿Eliminar esta foto? Esta acción no se puede deshacer.')) return false;
+  try {
+    // Borrar del Storage
+    if(storagePath){
+      const { error: stErr } = await sb.storage.from(BUCKET_FOTOS).remove([storagePath]);
+      if(stErr) console.warn('Error borrando archivo Storage:', stErr);
+    }
+    // Borrar metadata
+    const { error } = await sb.from('hallazgo_fotos').delete().eq('id', fotoId);
+    if(error) throw error;
+    toast('Foto eliminada', 'ok');
+    return true;
+  } catch(e){
+    console.error('Error eliminando foto:', e);
+    toast('Error eliminando: '+e.message, 'bad');
+    return false;
+  }
+}
+
+async function actualizarDescripcionFoto(fotoId, nuevaDesc){
+  if(!modoOnline()) return false;
+  try {
+    const { error } = await sb.from('hallazgo_fotos')
+      .update({ descripcion: nuevaDesc })
+      .eq('id', fotoId);
+    if(error) throw error;
+    return true;
+  } catch(e){
+    console.error('Error actualizando:', e);
+    return false;
+  }
+}
+
+// ---------------- UI: Galería de Fotos ----------------
+
+async function abrirGaleriaFotos(hallazgoId, hallazgoDesc){
+  // Verificar que el hallazgo está sincronizado en la nube
+  if(!hallazgoId || hallazgoId.length < 20 || !hallazgoId.includes('-')){
+    toast('⚠️ Guarda primero la auditoría en la nube para adjuntar fotos', 'warn');
+    return;
+  }
+  
+  _fotosHallazgoActual = hallazgoId;
+  
+  // Cargar fotos
+  await cargarFotosDeHallazgo(hallazgoId);
+  
+  const body = `
+    <div style="padding:6px 0">
+      <p style="margin:0 0 14px 0;font-size:13px;color:var(--text-2);line-height:1.5;padding:10px;background:#faf8f5;border-radius:6px;border-left:3px solid var(--primary)">
+        <b>Hallazgo:</b> ${escapeHtml(hallazgoDesc)}
+      </p>
+      
+      <!-- Zona de subida -->
+      <div id="fotoDropZone" style="border:2px dashed #d9d4cc;border-radius:12px;padding:24px 18px;text-align:center;background:#faf8f5;cursor:pointer;transition:.2s;margin-bottom:16px" onclick="document.getElementById('fotoFileInput').click()">
+        <svg viewBox="0 0 24 24" width="36" height="36" fill="none" stroke="var(--primary)" stroke-width="1.6" style="margin-bottom:6px"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+        <div style="font-weight:700;font-size:13px;color:var(--text);margin-bottom:2px">Toma o selecciona una foto</div>
+        <div style="font-size:11px;color:var(--text-3)">JPG, PNG, WebP · Máx 5 MB</div>
+      </div>
+      <input type="file" id="fotoFileInput" accept="image/*" capture="environment" style="display:none" onchange="onSeleccionFoto(this.files[0])" multiple>
+      
+      <!-- Galería -->
+      <div id="fotoGaleria">
+        ${renderGaleriaContenido()}
+      </div>
+    </div>
+  `;
+  
+  openModal(`📷 Galería de Evidencias`, body, `<button class="btn btn-ghost" onclick="closeModal();render()">Cerrar</button>`);
+}
+
+function renderGaleriaContenido(){
+  const fotos = _fotosCache[_fotosHallazgoActual] || [];
+  if(fotos.length === 0){
+    return `
+      <div style="padding:30px 20px;text-align:center;color:var(--text-3);background:#fafaf8;border-radius:8px">
+        <div style="font-size:32px;margin-bottom:8px">📷</div>
+        <div style="font-size:13px">Aún no hay fotos de este hallazgo</div>
+        <div style="font-size:11px;margin-top:4px">Sube la primera evidencia desde el botón de arriba</div>
+      </div>
+    `;
+  }
+  return `
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px">
+      ${fotos.map((f, idx) => `
+        <div style="background:#fff;border:1px solid #e8e3da;border-radius:8px;overflow:hidden;position:relative">
+          <div style="width:100%;aspect-ratio:1;background:#f5f5f4;cursor:pointer;position:relative;overflow:hidden" onclick="abrirLightbox(${idx})">
+            <img src="${f.url}" style="width:100%;height:100%;object-fit:cover" alt="" loading="lazy">
+            <div style="position:absolute;top:6px;right:6px;background:rgba(0,0,0,.6);color:#fff;padding:2px 6px;border-radius:10px;font-size:9px">${idx+1}/${fotos.length}</div>
+          </div>
+          <div style="padding:8px 10px">
+            <textarea 
+              placeholder="Descripción..." 
+              onblur="guardarDescFoto('${f.id}', this.value)"
+              style="width:100%;border:1px solid #f0ece5;border-radius:5px;padding:5px 7px;font-size:11px;resize:vertical;min-height:36px;font-family:inherit">${escapeHtml(f.descripcion || '')}</textarea>
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px;font-size:10px;color:var(--text-3)">
+              <span title="${new Date(f.subida_en).toLocaleString('es-CL')}">${new Date(f.subida_en).toLocaleDateString('es-CL')}</span>
+              <button onclick="onEliminarFoto('${f.id}', '${f.storage_path}')" style="background:none;border:none;color:var(--bad);cursor:pointer;font-size:11px;padding:2px 6px" title="Eliminar">🗑</button>
+            </div>
+          </div>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+async function onSeleccionFoto(file){
+  if(!file) return;
+  const files = Array.from(document.getElementById('fotoFileInput').files || []);
+  if(files.length === 0) return;
+  
+  toast(`📤 Subiendo ${files.length} foto(s)...`, 'ok');
+  let ok = 0, fail = 0;
+  for(const f of files){
+    const result = await subirFoto(_fotosHallazgoActual, f, '');
+    if(result) ok++; else fail++;
+  }
+  // Refrescar galería dentro del modal
+  await cargarFotosDeHallazgo(_fotosHallazgoActual);
+  const gal = document.getElementById('fotoGaleria');
+  if(gal) gal.innerHTML = renderGaleriaContenido();
+  
+  // Limpiar input
+  document.getElementById('fotoFileInput').value = '';
+  
+  if(fail === 0){
+    toast(`✓ ${ok} foto(s) subida(s)`, 'ok');
+  } else {
+    toast(`⚠️ ${ok} OK, ${fail} con error`, 'warn');
+  }
+}
+
+async function onEliminarFoto(fotoId, storagePath){
+  const ok = await eliminarFoto(fotoId, storagePath);
+  if(ok){
+    await cargarFotosDeHallazgo(_fotosHallazgoActual);
+    const gal = document.getElementById('fotoGaleria');
+    if(gal) gal.innerHTML = renderGaleriaContenido();
+  }
+}
+
+async function guardarDescFoto(fotoId, nuevaDesc){
+  // Solo guardar si cambió
+  const fotos = _fotosCache[_fotosHallazgoActual] || [];
+  const foto = fotos.find(f => f.id === fotoId);
+  if(!foto || foto.descripcion === nuevaDesc) return;
+  const ok = await actualizarDescripcionFoto(fotoId, nuevaDesc);
+  if(ok){
+    foto.descripcion = nuevaDesc;
+    toast('Descripción guardada', 'ok');
+  }
+}
+
+// ---------------- Lightbox (ver foto en grande) ----------------
+let _lightboxIdx = 0;
+function abrirLightbox(idx){
+  const fotos = _fotosCache[_fotosHallazgoActual] || [];
+  if(!fotos.length) return;
+  _lightboxIdx = idx;
+  
+  let lb = document.getElementById('fotoLightbox');
+  if(!lb){
+    lb = document.createElement('div');
+    lb.id = 'fotoLightbox';
+    lb.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px';
+    document.body.appendChild(lb);
+  }
+  
+  renderLightbox();
+  
+  // Cerrar con ESC
+  document.addEventListener('keydown', lightboxKeyHandler);
+}
+
+function lightboxKeyHandler(e){
+  if(e.key === 'Escape') cerrarLightbox();
+  else if(e.key === 'ArrowLeft') lightboxPrev();
+  else if(e.key === 'ArrowRight') lightboxNext();
+}
+
+function renderLightbox(){
+  const lb = document.getElementById('fotoLightbox');
+  if(!lb) return;
+  const fotos = _fotosCache[_fotosHallazgoActual] || [];
+  const f = fotos[_lightboxIdx];
+  if(!f){ cerrarLightbox(); return; }
+  lb.innerHTML = `
+    <button onclick="cerrarLightbox()" style="position:absolute;top:20px;right:20px;background:rgba(255,255,255,.15);border:none;color:#fff;width:40px;height:40px;border-radius:50%;cursor:pointer;font-size:20px;line-height:1">✕</button>
+    <div style="position:absolute;top:20px;left:20px;background:rgba(0,0,0,.6);color:#fff;padding:8px 14px;border-radius:20px;font-size:12px">${_lightboxIdx+1} / ${fotos.length}</div>
+    ${_lightboxIdx > 0 ? `<button onclick="lightboxPrev()" style="position:absolute;left:20px;top:50%;transform:translateY(-50%);background:rgba(255,255,255,.15);border:none;color:#fff;width:50px;height:50px;border-radius:50%;cursor:pointer;font-size:24px">‹</button>` : ''}
+    ${_lightboxIdx < fotos.length - 1 ? `<button onclick="lightboxNext()" style="position:absolute;right:20px;top:50%;transform:translateY(-50%);background:rgba(255,255,255,.15);border:none;color:#fff;width:50px;height:50px;border-radius:50%;cursor:pointer;font-size:24px">›</button>` : ''}
+    <img src="${f.url}" style="max-width:90vw;max-height:80vh;object-fit:contain;border-radius:8px;box-shadow:0 12px 50px rgba(0,0,0,.6)" alt="">
+    ${f.descripcion ? `<div style="background:rgba(0,0,0,.7);color:#fff;padding:12px 20px;border-radius:8px;margin-top:16px;font-size:13px;max-width:600px;text-align:center">${escapeHtml(f.descripcion)}</div>` : ''}
+    <div style="color:rgba(255,255,255,.6);font-size:11px;margin-top:8px">${new Date(f.subida_en).toLocaleString('es-CL')}</div>
+  `;
+}
+
+function lightboxPrev(){
+  const fotos = _fotosCache[_fotosHallazgoActual] || [];
+  if(_lightboxIdx > 0){ _lightboxIdx--; renderLightbox(); }
+}
+function lightboxNext(){
+  const fotos = _fotosCache[_fotosHallazgoActual] || [];
+  if(_lightboxIdx < fotos.length - 1){ _lightboxIdx++; renderLightbox(); }
+}
+function cerrarLightbox(){
+  const lb = document.getElementById('fotoLightbox');
+  if(lb) lb.remove();
+  document.removeEventListener('keydown', lightboxKeyHandler);
 }
 
 // ============================================================
@@ -4491,10 +4855,12 @@ function renderTablaHallazgos(arr){
   return `<div class="scrollx"><table class="tabla">
     <thead><tr>
       <th>N°</th><th>Tipo</th><th>Área</th><th>Descripción</th><th>Responsable</th>
-      <th>F. Compromiso</th><th>Estado</th><th>Descuento</th><th>Evidencia</th><th></th>
+      <th>F. Compromiso</th><th>Estado</th><th>Descuento</th><th>📷 Fotos</th><th></th>
     </tr></thead>
     <tbody>
-      ${arr.map(h => `<tr>
+      ${arr.map(h => {
+        const numFotos = (_fotosCache[h.supabase_id || h.id] || []).length;
+        return `<tr>
         <td><b>${h.numero||''}</b></td>
         <td><span class="tag ${h.nivel==='1'?'bad':'warn'}">${h.tipo||''}</span></td>
         <td>${h.area||''}</td>
@@ -4503,12 +4869,17 @@ function renderTablaHallazgos(arr){
         <td class="text-mono">${h.fechaCompromiso||''}</td>
         <td><span class="tag ${h.estado==='Cerrado'?'ok':h.estado==='En curso'?'warn':'bad'}">${h.estado||'Abierto'}</span></td>
         <td class="text-mono text-bad">−${fmtPct(Number(h.descuento||0))}</td>
-        <td style="max-width:180px">${h.evidencia||''}</td>
+        <td>
+          <button class="btn btn-ghost btn-sm" onclick="abrirGaleriaFotos('${h.supabase_id || h.id}', '${escapeHtml((h.descripcion||'Hallazgo').slice(0,40)).replace(/'/g, "\\'")}')" title="Ver/subir fotos">
+            📷 <b>${numFotos}</b>
+          </button>
+        </td>
         <td>
           <button class="btn btn-ghost btn-sm" onclick="editHallazgo('${h.id}')">✎</button>
           <button class="btn btn-ghost btn-sm" onclick="deleteHallazgo('${h.id}')" title="Eliminar">✕</button>
         </td>
-      </tr>`).join('')}
+      </tr>`;
+      }).join('')}
     </tbody>
   </table></div>`;
 }
@@ -5078,6 +5449,10 @@ function loadAuditoria(id){
   }
   state.auditoria = loaded;
   saveCurrent();
+  // Cargar contador de fotos en background (no bloqueante)
+  cargarTodasFotosAuditoria().then(()=>{
+    if(state.currentView === 'hallazgos') render();
+  });
   navigate('dashboard');
   toast('Auditoría cargada', 'ok');
 }
@@ -7199,6 +7574,12 @@ function initApp(){
     loadCurrent();
     calcular(false);
     updateBadges();
+    // Cargar fotos en background
+    if(modoOnline()){
+      cargarTodasFotosAuditoria().then(()=>{
+        if(state.currentView === 'hallazgos') render();
+      });
+    }
     navigate('dashboard');
   }
 }

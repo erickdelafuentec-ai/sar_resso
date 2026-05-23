@@ -3972,6 +3972,11 @@ document.addEventListener('change', e=>{
 
 // ---------------- DOCUMENTAL ----------------
 function renderDocumental(){
+  // Protección: si la auditoría viene de Supabase sin estructura documental, reconstruirla
+  if(!state.auditoria.documental || Object.keys(state.auditoria.documental).length === 0){
+    state.auditoria.documental = buildEmptyDocumental();
+    saveCurrent();
+  }
   const secciones = calcResultadosPorSeccionDoc();
   return `
     <div class="page">
@@ -3985,7 +3990,7 @@ function renderDocumental(){
         </div>
       </div>
       ${Object.entries(RESSO_DATA.documental).map(([k,sec]) => {
-        const stat = secciones.find(s=>s.codigo===k);
+        const stat = secciones.find(s=>s.codigo===k) || {pct:0, respondidas:0, total:(sec.preguntas||[]).length};
         const open = k==='A' ? 'open' : '';
         return `
         <div class="acc ${open}" data-acc="${k}">
@@ -4010,6 +4015,11 @@ function toggleAcc(k){
   document.querySelector(`[data-acc="${k}"]`).classList.toggle('open');
 }
 function renderPregunta(secK, p){
+  // Protección: asegurar que la respuesta exista
+  if(!state.auditoria.documental[secK]) state.auditoria.documental[secK] = {respuestas:{}};
+  if(!state.auditoria.documental[secK].respuestas[p.numero]){
+    state.auditoria.documental[secK].respuestas[p.numero] = {cumplimiento:null, obs:''};
+  }
   const r = state.auditoria.documental[secK].respuestas[p.numero];
   const resul = (r.cumplimiento !== null && r.cumplimiento !== 'N/A') ? p.ponderacion * Number(r.cumplimiento) : 0;
   const pct = (r.cumplimiento !== null && r.cumplimiento !== 'N/A') ? Number(r.cumplimiento) : 0;
@@ -4060,6 +4070,11 @@ function updateRespDoc(secK, num, field, val){
 
 // ---------------- TERRENO ----------------
 function renderTerreno(){
+  // Protección: si la auditoría viene de Supabase sin estructura terreno, reconstruirla
+  if(!state.auditoria.terreno || Object.keys(state.auditoria.terreno).length === 0){
+    state.auditoria.terreno = buildEmptyTerreno();
+    saveCurrent();
+  }
   return `
     <div class="page">
       <div class="card" style="margin-bottom:14px">
@@ -4078,6 +4093,13 @@ function renderTerreno(){
   `;
 }
 function renderTerrSeccion(sec){
+  // Protección extra: asegurar que esta sección específica tenga estructura
+  if(!state.auditoria.terreno[sec.codigo] || !state.auditoria.terreno[sec.codigo].respuestas){
+    state.auditoria.terreno[sec.codigo] = {respuestas:{}};
+    sec.preguntas.forEach(p => {
+      state.auditoria.terreno[sec.codigo].respuestas[p.codigo] = {valor:null, obs:''};
+    });
+  }
   return `
     <div class="terr-card">
       <div class="terr-h">
@@ -4086,7 +4108,7 @@ function renderTerrSeccion(sec){
         <div class="pct">${(sec.ponderacion*100).toFixed(1)}%</div>
       </div>
       ${sec.preguntas.map(p => {
-        const r = state.auditoria.terreno[sec.codigo].respuestas[p.codigo];
+        const r = state.auditoria.terreno[sec.codigo].respuestas[p.codigo] || {valor:null, obs:''};
         const niveles = [
           {v:1, l:'Sí', cls:''},
           {v:0.5, l:'½', cls:'med'},

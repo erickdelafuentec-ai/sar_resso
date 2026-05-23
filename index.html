@@ -4708,12 +4708,19 @@ function renderHistorial(){
         </div>
       </div>
       <div class="card">
-        <div class="card-h"><h3>Auditorías guardadas</h3><span class="sub">${lista.length} registro(s)</span></div>
+        <div class="card-h">
+          <h3>Auditorías guardadas</h3>
+          <div style="display:flex;align-items:center;gap:10px">
+            <span class="sub">${lista.length} registro(s)</span>
+            ${modoOnline() ? `<button class="btn btn-primary btn-sm" onclick="sincronizarHistorialANube()" title="Sube todas las auditorías locales a la nube">☁️ Sincronizar todas a la nube</button>` : ''}
+          </div>
+        </div>
         <div class="card-b">
           ${lista.length===0 ? '<div class="empty">No hay auditorías guardadas que coincidan con los filtros.</div>' :
           `<div class="aud-list">
             ${lista.map(a => {
               const c = clasificar(a.resultados.resFinal);
+              const enNube = !!a.supabase_id;
               return `<div class="aud-row" onclick="loadAuditoria('${a.id}')">
                 <span class="stamp">${a.antecedentes.fechaAuditoria||a.creada.slice(0,10)}</span>
                 <div>
@@ -4724,6 +4731,7 @@ function renderHistorial(){
                 <span class="tag">${a.hallazgos.length} hallazgo(s)</span>
                 <span class="pct text-${c.color}">${fmtPct(a.resultados.resFinal)}</span>
                 <span class="clase tag ${c.color}">${a.resultados.clasificacion}</span>
+                <span class="tag" style="background:${enNube?'#e8f5e9':'#fff4e5'};color:${enNube?'#2e7d32':'#e65100'};font-size:10px" title="${enNube?'Sincronizada en la nube':'Solo en este dispositivo'}">${enNube?'☁️ Nube':'💾 Local'}</span>
               </div>`;
             }).join('')}
           </div>`}
@@ -4751,6 +4759,81 @@ function loadAuditoria(id){
   saveCurrent();
   navigate('dashboard');
   toast('Auditoría cargada', 'ok');
+}
+
+// ---------------- SINCRONIZAR A LA NUBE ----------------
+async function sincronizarHistorialANube(){
+  if(!modoOnline()){
+    toast('Sin conexión a Supabase', 'bad');
+    return;
+  }
+  const sinSubir = state.history.filter(a => !a.supabase_id);
+  if(sinSubir.length === 0){
+    toast('Todas las auditorías ya están en la nube ✓', 'ok');
+    return;
+  }
+  if(!confirm(`¿Subir ${sinSubir.length} auditoría(s) local(es) a la nube?\n\nLas auditorías quedarán visibles para todos los usuarios con permiso (supervisores/admins) y aparecerán en el Dashboard Ejecutivo.`)) return;
+  
+  toast(`☁️ Subiendo ${sinSubir.length} auditoría(s)...`, 'ok');
+  let ok = 0, fail = 0;
+  for(const aud of sinSubir){
+    try {
+      const result = await sb_guardarAuditoria(aud);
+      if(result){
+        // Actualizar el supabase_id en el item del historial
+        const idx = state.history.findIndex(x => x.id === aud.id);
+        if(idx >= 0) state.history[idx].supabase_id = aud.supabase_id;
+        ok++;
+      } else fail++;
+    } catch(e){
+      console.error('Error sincronizando:', aud.id, e);
+      fail++;
+    }
+  }
+  // Refrescar historial completo desde la nube
+  state.history = await sb_cargarAuditorias();
+  saveHistory(state.history);
+  
+  if(fail === 0){
+    toast(`✓ ${ok} auditoría(s) sincronizada(s) correctamente`, 'ok');
+  } else {
+    toast(`⚠️ ${ok} OK, ${fail} con error`, 'warn');
+  }
+  render();
+}
+
+async function sincronizarHistorialRFANube(){
+  if(!modoOnline()){
+    toast('Sin conexión a Supabase', 'bad');
+    return;
+  }
+  const sinSubir = (state.historyRF||[]).filter(s => !s.supabase_id);
+  if(sinSubir.length === 0){
+    toast('Todos los seguimientos RF ya están en la nube ✓', 'ok');
+    return;
+  }
+  if(!confirm(`¿Subir ${sinSubir.length} seguimiento(s) RF local(es) a la nube?`)) return;
+  
+  toast(`☁️ Subiendo ${sinSubir.length} seguimiento(s) RF...`, 'ok');
+  let ok = 0, fail = 0;
+  for(const seg of sinSubir){
+    try {
+      const result = await sb_guardarSeguimientoRF(seg);
+      if(result) ok++; else fail++;
+    } catch(e){
+      console.error('Error sincronizando RF:', seg.id, e);
+      fail++;
+    }
+  }
+  state.historyRF = await sb_cargarSeguimientosRF();
+  saveHistoryRF();
+  
+  if(fail === 0){
+    toast(`✓ ${ok} seguimiento(s) RF sincronizado(s)`, 'ok');
+  } else {
+    toast(`⚠️ ${ok} OK, ${fail} con error`, 'warn');
+  }
+  render();
 }
 
 // ---------------- AYUDA ----------------
@@ -6258,7 +6341,10 @@ function renderHistorialRF(){
       <div class="card">
         <div class="card-h">
           <h3>Historial de Seguimientos RF</h3>
-          <div style="font-size:11px;color:var(--text-3)">${hist.length} seguimientos guardados</div>
+          <div style="display:flex;align-items:center;gap:10px">
+            <span style="font-size:11px;color:var(--text-3)">${hist.length} seguimientos guardados</span>
+            ${modoOnline() && hist.length > 0 ? `<button class="btn btn-primary btn-sm" onclick="sincronizarHistorialRFANube()" title="Sube todos los seguimientos RF a la nube">☁️ Sincronizar todos a la nube</button>` : ''}
+          </div>
         </div>
         <div class="card-b">
           ${hist.length === 0 ? `

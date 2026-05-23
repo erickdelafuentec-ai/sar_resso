@@ -725,6 +725,23 @@ a{color:var(--primary);text-decoration:none}
 /* Loading state */
 .loader{display:inline-block;width:14px;height:14px;border:2px solid var(--text-3);border-top-color:var(--text);border-radius:50%;animation:spin .8s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
+@keyframes shake{0%,100%{transform:rotate(0)}10%,30%,50%,70%{transform:rotate(-12deg)}20%,40%,60%,80%{transform:rotate(12deg)}}
+.notif-bell-alert{animation:shake .6s ease-in-out;animation-iteration-count:2}
+.notif-item{padding:12px 16px;border-bottom:1px solid #f5f3ee;cursor:pointer;transition:.15s;display:flex;gap:10px;align-items:flex-start}
+.notif-item:hover{background:#faf8f5}
+.notif-item.unread{background:rgba(232,119,34,.04)}
+.notif-item.unread:hover{background:rgba(232,119,34,.08)}
+.notif-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;margin-top:6px}
+.notif-dot.vencido{background:var(--bad)}
+.notif-dot.critico{background:var(--warn)}
+.notif-dot.proximo{background:var(--primary)}
+.notif-empresa{font-size:13px;font-weight:700;color:var(--text);margin-bottom:2px}
+.notif-desc{font-size:12px;color:var(--text-2);line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.notif-meta{font-size:11px;color:var(--text-3);margin-top:4px;display:flex;gap:10px;align-items:center}
+.notif-badge-prior{font-size:9px;font-weight:700;padding:2px 7px;border-radius:8px;letter-spacing:.5px;text-transform:uppercase}
+.notif-badge-prior.vencido{background:var(--bad);color:#fff}
+.notif-badge-prior.critico{background:var(--warn);color:#fff}
+.notif-badge-prior.proximo{background:rgba(232,119,34,.15);color:var(--primary)}
 
 /* === Selector de Módulo === */
 .module-selector{min-height:100vh;display:grid;place-items:center;padding:30px;background:radial-gradient(circle at 80% 20%, #3a3a37 0%, var(--primary) 60%, var(--primary-d) 100%)}
@@ -1083,6 +1100,31 @@ a{color:var(--primary);text-decoration:none}
     <div>
       <div class="crumb" id="crumb">Auditoría · Dashboard</div>
       <h1 id="pageTitle">Dashboard de Auditoría</h1>
+    </div>
+    <!-- Campana de notificaciones (fija, no se reemplaza con buildTopbar) -->
+    <div id="notifContainer" style="position:relative;margin-left:auto;margin-right:6px">
+      <button id="notifBell" class="btn btn-ghost btn-icon" onclick="toggleNotifDropdown()" title="Notificaciones" style="position:relative">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+        <span id="notifBadge" style="display:none;position:absolute;top:2px;right:2px;background:var(--bad);color:#fff;font-size:10px;font-weight:700;min-width:18px;height:18px;border-radius:9px;padding:0 5px;align-items:center;justify-content:center;line-height:1;border:2px solid #fff">0</span>
+      </button>
+      <div id="notifDropdown" style="display:none;position:absolute;top:calc(100% + 8px);right:0;width:420px;max-width:calc(100vw - 40px);background:#fff;border:1px solid #e8e3da;border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,.18);z-index:200;max-height:600px;overflow:hidden;flex-direction:column">
+        <div style="padding:14px 16px;border-bottom:1px solid #f0ece5;display:flex;justify-content:space-between;align-items:center;background:#faf8f5">
+          <div>
+            <div style="font-size:14px;font-weight:700;color:var(--text);font-family:Archivo">Notificaciones</div>
+            <div id="notifSubtitle" style="font-size:11px;color:var(--text-3);margin-top:2px">Sin alertas</div>
+          </div>
+          <div style="display:flex;gap:6px">
+            <button class="btn btn-ghost btn-sm" onclick="refrescarNotif()" title="Refrescar" style="padding:4px 8px;font-size:11px">🔄</button>
+            <button class="btn btn-ghost btn-sm" onclick="marcarTodasLeidas()" title="Marcar todas como leídas" style="padding:4px 8px;font-size:11px">✓ Todo</button>
+          </div>
+        </div>
+        <div id="notifList" style="overflow-y:auto;max-height:500px;padding:6px 0">
+          <div style="padding:40px 20px;text-align:center;color:var(--text-3);font-size:13px">⏳ Cargando notificaciones...</div>
+        </div>
+        <div style="padding:10px 16px;border-top:1px solid #f0ece5;background:#fafaf8;font-size:11px;color:var(--text-3);text-align:center">
+          <a href="#" onclick="abrirVistaPlanes();return false" style="color:var(--primary);text-decoration:none;font-weight:600">Ver todos los planes →</a>
+        </div>
+      </div>
     </div>
     <div class="topbar-actions">
       <span class="tag amber" id="tagAud" title="ID de la auditoría actual">— sin guardar —</span>
@@ -1543,6 +1585,244 @@ async function sb_cargarDashboardEjecutivo(){
 }
 
 // ============================================================
+//  SISTEMA DE NOTIFICACIONES
+// ============================================================
+
+let _notifData = []; // cache de notificaciones
+let _notifLeidas = new Set(); // plan_ids ya leídos
+let _notifPollTimer = null;
+let _notifPrevCount = 0;
+
+async function cargarNotificaciones(){
+  if(!modoOnline()) return [];
+  try {
+    // Cargar notificaciones activas y mis lecturas en paralelo
+    const [notifs, lecturas] = await Promise.all([
+      sb.from('notif_activas').select('*'),
+      sb.from('notif_lecturas').select('plan_id').eq('usuario_id', state.user?.id || ''),
+    ]);
+    if(notifs.error) throw notifs.error;
+    _notifData = notifs.data || [];
+    _notifLeidas = new Set((lecturas.data || []).map(l => l.plan_id));
+    renderNotifBadge();
+    return _notifData;
+  } catch(e){
+    console.warn('[Notif] Error cargando notificaciones:', e);
+    return [];
+  }
+}
+
+function renderNotifBadge(){
+  const noLeidas = _notifData.filter(n => !_notifLeidas.has(n.plan_id));
+  const badge = document.getElementById('notifBadge');
+  const bell = document.getElementById('notifBell');
+  if(!badge || !bell) return;
+  
+  if(noLeidas.length > 0){
+    badge.textContent = noLeidas.length > 99 ? '99+' : noLeidas.length;
+    badge.style.display = 'flex';
+    // Si crecieron las alertas, animar la campana
+    if(noLeidas.length > _notifPrevCount){
+      bell.classList.add('notif-bell-alert');
+      setTimeout(()=>bell.classList.remove('notif-bell-alert'), 1500);
+    }
+  } else {
+    badge.style.display = 'none';
+  }
+  _notifPrevCount = noLeidas.length;
+  
+  // Actualizar subtítulo del dropdown
+  const sub = document.getElementById('notifSubtitle');
+  if(sub){
+    const vencidos = _notifData.filter(n=>n.prioridad==='vencido').length;
+    const criticos = _notifData.filter(n=>n.prioridad==='critico').length;
+    const proximos = _notifData.filter(n=>n.prioridad==='proximo').length;
+    if(_notifData.length === 0){
+      sub.textContent = 'Sin alertas pendientes';
+    } else {
+      const partes = [];
+      if(vencidos) partes.push(`<b style="color:var(--bad)">${vencidos} vencido${vencidos!=1?'s':''}</b>`);
+      if(criticos) partes.push(`<b style="color:var(--warn)">${criticos} crítico${criticos!=1?'s':''}</b>`);
+      if(proximos) partes.push(`<b style="color:var(--primary)">${proximos} próximo${proximos!=1?'s':''}</b>`);
+      sub.innerHTML = partes.join(' · ');
+    }
+  }
+}
+
+function renderNotifDropdown(){
+  const lista = document.getElementById('notifList');
+  if(!lista) return;
+  
+  if(_notifData.length === 0){
+    lista.innerHTML = `
+      <div style="padding:40px 20px;text-align:center;color:var(--text-3)">
+        <div style="font-size:32px;margin-bottom:8px">✅</div>
+        <div style="font-size:13px;font-weight:600;color:var(--text)">Todo en orden</div>
+        <div style="font-size:11px;margin-top:4px">No hay planes vencidos ni próximos a vencer</div>
+      </div>
+    `;
+    return;
+  }
+  
+  // Ordenar: vencido > critico > proximo
+  const ordenadas = [..._notifData].sort((a,b)=>{
+    const prio = {vencido:0, critico:1, proximo:2};
+    const da = prio[a.prioridad] ?? 9;
+    const db = prio[b.prioridad] ?? 9;
+    if(da !== db) return da - db;
+    return (a.fecha_compromiso||'').localeCompare(b.fecha_compromiso||'');
+  });
+  
+  lista.innerHTML = ordenadas.map(n => {
+    const leida = _notifLeidas.has(n.plan_id);
+    const label = n.prioridad === 'vencido' 
+      ? `Vencido hace ${n.dias_vencido} día${n.dias_vencido!=1?'s':''}`
+      : (n.prioridad === 'critico' 
+        ? `Vence en ${n.dias_restantes} día${n.dias_restantes!=1?'s':''}`
+        : `Vence en ${n.dias_restantes} días`);
+    return `
+      <div class="notif-item ${leida?'':'unread'}" onclick="abrirNotificacion('${n.plan_id}','${n.auditoria_id}')">
+        <div class="notif-dot ${n.prioridad}"></div>
+        <div style="flex:1;min-width:0">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:3px">
+            <div class="notif-empresa">${escapeHtml(n.empresa || 'Sin empresa')}</div>
+            <span class="notif-badge-prior ${n.prioridad}">${n.prioridad}</span>
+          </div>
+          <div class="notif-desc">${escapeHtml(n.descripcion || '')}</div>
+          <div class="notif-meta">
+            <span>👤 ${escapeHtml(n.responsable || '—')}</span>
+            <span>📅 ${escapeHtml(n.fecha_compromiso || '—')}</span>
+            <span style="color:${n.prioridad==='vencido'?'var(--bad)':'var(--text-3)'};font-weight:600">${label}</span>
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function toggleNotifDropdown(){
+  const dd = document.getElementById('notifDropdown');
+  if(!dd) return;
+  if(dd.style.display === 'flex'){
+    dd.style.display = 'none';
+  } else {
+    dd.style.display = 'flex';
+    renderNotifDropdown();
+  }
+}
+
+async function refrescarNotif(){
+  await cargarNotificaciones();
+  renderNotifDropdown();
+  toast('Notificaciones actualizadas', 'ok');
+}
+
+async function marcarTodasLeidas(){
+  if(!modoOnline()) return;
+  if(_notifData.length === 0){
+    toast('No hay notificaciones', 'ok');
+    return;
+  }
+  try {
+    const { data, error } = await sb.rpc('marcar_todas_leidas');
+    if(error) throw error;
+    // Recargar
+    await cargarNotificaciones();
+    renderNotifDropdown();
+    toast(`✓ ${data || 0} notificación(es) marcada(s) como leída(s)`, 'ok');
+  } catch(e){
+    console.error('Error marcando leídas:', e);
+    toast('Error: '+e.message, 'bad');
+  }
+}
+
+async function abrirNotificacion(planId, auditoriaId){
+  // Marcar como leída
+  if(modoOnline() && state.user?.id && !_notifLeidas.has(planId)){
+    try {
+      await sb.from('notif_lecturas').upsert({
+        usuario_id: state.user.id,
+        plan_id: planId,
+      }, { onConflict: 'usuario_id,plan_id' });
+      _notifLeidas.add(planId);
+      renderNotifBadge();
+      renderNotifDropdown();
+    } catch(e){
+      console.warn('Error marcando como leída:', e);
+    }
+  }
+  
+  // Cerrar dropdown
+  document.getElementById('notifDropdown').style.display = 'none';
+  
+  // Navegar al plan: si estamos en módulo ejecutivo, ir a Planes Críticos
+  // Si no, cargar la auditoría y abrir Plan de Acción
+  if(state.modulo === 'ejecutivo'){
+    navigateEjecutivo('planes');
+  } else if(state.modulo === 'resso'){
+    // Cargar la auditoría correspondiente desde el historial
+    const aud = (state.history||[]).find(a => a.supabase_id === auditoriaId);
+    if(aud){
+      const loaded = JSON.parse(JSON.stringify(aud));
+      if(!loaded.documental || Object.keys(loaded.documental).length === 0){
+        loaded.documental = buildEmptyDocumental();
+      }
+      if(!loaded.terreno || Object.keys(loaded.terreno).length === 0){
+        loaded.terreno = buildEmptyTerreno();
+      }
+      state.auditoria = loaded;
+      saveCurrent();
+      navigate('plan');
+      toast('Plan de acción cargado', 'ok');
+    } else {
+      toast('Auditoría no encontrada en tu historial', 'warn');
+    }
+  } else {
+    // Cambiar a módulo RESSO primero
+    toast('Cambia al módulo Auditoría RESSO para ver el plan', 'warn');
+  }
+}
+
+function abrirVistaPlanes(){
+  document.getElementById('notifDropdown').style.display = 'none';
+  if(state.modulo === 'ejecutivo'){
+    navigateEjecutivo('planes');
+  } else if(state.modulo === 'resso'){
+    navigate('plan');
+  } else {
+    toast('Cambia al módulo RESSO o Ejecutivo para ver planes', 'warn');
+  }
+}
+
+function iniciarPollNotificaciones(){
+  // Cargar inicial y luego cada 60 segundos
+  cargarNotificaciones();
+  if(_notifPollTimer) clearInterval(_notifPollTimer);
+  _notifPollTimer = setInterval(()=>{
+    cargarNotificaciones();
+  }, 60000); // 1 minuto
+}
+
+function detenerPollNotificaciones(){
+  if(_notifPollTimer){
+    clearInterval(_notifPollTimer);
+    _notifPollTimer = null;
+  }
+}
+
+// Cerrar dropdown al hacer click fuera
+document.addEventListener('click', (e) => {
+  const dropdown = document.getElementById('notifDropdown');
+  const bell = document.getElementById('notifBell');
+  if(!dropdown || !bell) return;
+  if(dropdown.style.display === 'flex' && 
+     !dropdown.contains(e.target) && 
+     !bell.contains(e.target)){
+    dropdown.style.display = 'none';
+  }
+});
+
+// ============================================================
 //  REALTIME - Suscripciones en vivo
 // ============================================================
 
@@ -1582,6 +1862,21 @@ function sb_iniciarRealtime(){
       })
     .subscribe();
   realtimeChannels.push(chRF);
+  
+  // Canal para plan de acción (afecta notificaciones)
+  const chPlan = sb
+    .channel('plan-changes')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'auditoria_plan' },
+      async (payload) => {
+        console.log('[Realtime Plan]', payload.eventType);
+        // Refrescar notificaciones cuando cambian planes
+        await cargarNotificaciones();
+        // Si el dropdown está abierto, re-renderizar
+        const dd = document.getElementById('notifDropdown');
+        if(dd && dd.style.display === 'flex') renderNotifDropdown();
+      })
+    .subscribe();
+  realtimeChannels.push(chPlan);
   
   console.log('[SAR] Realtime activo');
 }
@@ -2963,6 +3258,9 @@ async function doLogin(){
   // Iniciar suscripciones en tiempo real
   sb_iniciarRealtime();
   
+  // Iniciar polling de notificaciones
+  iniciarPollNotificaciones();
+  
   toast(`Bienvenido ${state.user.name}`, 'ok');
   document.getElementById('loginView').classList.add('hidden');
   mostrarSelectorModulo();
@@ -2970,6 +3268,7 @@ async function doLogin(){
 
 async function logout(){
   if(!confirm('¿Cerrar sesión?')) return;
+  detenerPollNotificaciones();
   await sb_logout();
   localStorage.removeItem('resso_user');
   localStorage.removeItem('app_modulo');
@@ -6948,6 +7247,7 @@ window.addEventListener('load', async ()=>{
         state.history = await sb_cargarAuditorias();
         state.historyRF = await sb_cargarSeguimientosRF();
         sb_iniciarRealtime();
+        iniciarPollNotificaciones();
         
         document.getElementById('splash').classList.add('hide');
         setTimeout(()=>{

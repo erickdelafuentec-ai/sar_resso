@@ -733,8 +733,9 @@ a{color:var(--primary);text-decoration:none}
 .ms-header img{height:50px;margin-bottom:18px}
 .ms-header h1{color:#fff;font-family:'Archivo';font-size:36px;font-weight:800;letter-spacing:-1px;margin-bottom:8px}
 .ms-header p{color:rgba(255,255,255,.7);font-size:14px}
-.ms-cards{display:grid;grid-template-columns:1fr 1fr;gap:28px}
-@media(max-width:850px){.ms-cards{grid-template-columns:1fr}}
+.ms-cards{display:grid;grid-template-columns:repeat(3, 1fr);gap:24px}
+@media(max-width:1100px){.ms-cards{grid-template-columns:1fr 1fr}}
+@media(max-width:750px){.ms-cards{grid-template-columns:1fr}}
 .ms-card{background:#fff;border-radius:16px;padding:36px 30px;cursor:pointer;transition:all .25s;border:2px solid transparent;text-align:center;box-shadow:0 12px 40px rgba(0,0,0,.35)}
 .ms-card:hover{transform:translateY(-6px);border-color:var(--accent);box-shadow:0 20px 50px rgba(232,119,34,.35)}
 .ms-card-icon{width:84px;height:84px;border-radius:50%;display:grid;place-items:center;margin:0 auto 20px;font-size:36px}
@@ -909,6 +910,17 @@ a{color:var(--primary);text-decoration:none}
           <div><strong id="msStatRfHist">0</strong>Seguimientos</div>
           <div><strong>24</strong>RF</div>
           <div><strong>742</strong>Requisitos</div>
+        </div>
+      </div>
+      <div class="ms-card" onclick="entrarModulo('ejecutivo')" style="background:linear-gradient(135deg, #1e3a5f 0%, #2c5282 100%);color:#fff">
+        <div class="ms-card-icon" style="background:rgba(255,255,255,.15);color:#fff">📊</div>
+        <div class="ms-sub" style="color:rgba(255,255,255,.85)">Vista Consolidada</div>
+        <h2 style="color:#fff">Dashboard Ejecutivo</h2>
+        <p style="color:rgba(255,255,255,.85)">Panorama global del sistema: ranking de empresas, desempeño por gerencia, planes críticos vencidos y tendencias mensuales.</p>
+        <div class="ms-stats" style="color:rgba(255,255,255,.9)">
+          <div><strong id="msStatEjecAud" style="color:#fff">0</strong>Total auditorías</div>
+          <div><strong id="msStatEjecEmp" style="color:#fff">0</strong>Empresas</div>
+          <div><strong id="msStatEjecGer" style="color:#fff">0</strong>Gerencias</div>
         </div>
       </div>
     </div>
@@ -1497,6 +1509,36 @@ async function sb_eliminarSeguimientoRF(supabase_id){
     console.error('[SAR] Error eliminando seguimiento RF:', e);
     toast('Error al eliminar: '+e.message, 'bad');
     return false;
+  }
+}
+
+// ============================================================
+//  DASHBOARD EJECUTIVO - Cargar vistas agregadas
+// ============================================================
+
+async function sb_cargarDashboardEjecutivo(){
+  if(!modoOnline()) return null;
+  try {
+    const [kpis, ranking, gerencias, tendencia, planesCriticos, rfGlobal] = await Promise.all([
+      sb.from('dash_kpis_globales').select('*').single(),
+      sb.from('dash_ranking_empresas').select('*'),
+      sb.from('dash_gerencias').select('*'),
+      sb.from('dash_tendencia_mensual').select('*'),
+      sb.from('dash_planes_criticos').select('*'),
+      sb.from('dash_rf_global').select('*'),
+    ]);
+    return {
+      kpis: kpis.data || {},
+      ranking: ranking.data || [],
+      gerencias: gerencias.data || [],
+      tendencia: tendencia.data || [],
+      planesCriticos: planesCriticos.data || [],
+      rfGlobal: rfGlobal.data || [],
+    };
+  } catch(e){
+    console.error('[SAR] Error cargando Dashboard Ejecutivo:', e);
+    toast('Error cargando datos del dashboard: '+(e.message||e), 'bad');
+    return null;
   }
 }
 
@@ -2943,13 +2985,23 @@ function mostrarSelectorModulo(){
   
   // Refrescar contadores y nombre usuario
   try {
-    const hRESSO = JSON.parse(localStorage.getItem('resso_history') || '[]');
-    const hRF = JSON.parse(localStorage.getItem('rf_history') || '[]');
-    // Soportar ambos IDs por si el HTML cambió
-    ['msStatRessoHist','msStatRessoAud'].forEach(id=>{const e=document.getElementById(id); if(e) e.textContent = hRESSO.length;});
-    ['msStatRfHist','msStatRfAud'].forEach(id=>{const e=document.getElementById(id); if(e) e.textContent = hRF.length;});
+    const hRESSO = (state.history && state.history.length) ? state.history.length : JSON.parse(localStorage.getItem('resso_history') || '[]').length;
+    const hRF = (state.historyRF && state.historyRF.length) ? state.historyRF.length : JSON.parse(localStorage.getItem('rf_history') || '[]').length;
+    ['msStatRessoHist','msStatRessoAud'].forEach(id=>{const e=document.getElementById(id); if(e) e.textContent = hRESSO;});
+    ['msStatRfHist','msStatRfAud'].forEach(id=>{const e=document.getElementById(id); if(e) e.textContent = hRF;});
     const elU = document.getElementById('msUserName');
     if(elU && state.user) elU.textContent = state.user.name || state.user.email || 'Usuario';
+    
+    // Dashboard ejecutivo: cargar KPIs rápidos (en background)
+    if(modoOnline()){
+      sb.from('dash_kpis_globales').select('total_auditorias,total_empresas,total_gerencias').single().then(({data}) => {
+        if(data){
+          const eA = document.getElementById('msStatEjecAud'); if(eA) eA.textContent = data.total_auditorias || 0;
+          const eE = document.getElementById('msStatEjecEmp'); if(eE) eE.textContent = data.total_empresas || 0;
+          const eG = document.getElementById('msStatEjecGer'); if(eG) eG.textContent = data.total_gerencias || 0;
+        }
+      }).catch(()=>{});
+    }
   } catch(e){}
 }
 
@@ -3014,7 +3066,21 @@ function buildSidebarParaModulo(mod){
     ],
   };
   
-  const cfg = mod === 'rf' ? itemsRF : itemsRESSO;
+  const itemsEjecutivo = {
+    grupo1Title: 'Vista Consolidada',
+    grupo1: [
+      {view:'dashboard', label:'Resumen Ejecutivo', icon:'<rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/>'},
+      {view:'ranking', label:'Ranking Empresas', icon:'<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>'},
+      {view:'gerencias', label:'Por Gerencia', icon:'<path d="M3 21h18M5 21V7l8-4v18M19 21V11l-6-4"/>'},
+      {view:'tendencia', label:'Tendencia Mensual', icon:'<polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/>'},
+      {view:'planes', label:'Planes Críticos', icon:'<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>', badge:'badge-planes-crit', badgeVal:'0'},
+      {view:'rfglobal', label:'RF Global', icon:'<circle cx="12" cy="12" r="3"/><path d="M12 1v6m0 6v6m11-11h-6m-6 0H1"/>'},
+    ],
+    grupo2Title: 'Sistema',
+    grupo2: [],
+  };
+  
+  const cfg = mod === 'rf' ? itemsRF : (mod === 'ejecutivo' ? itemsEjecutivo : itemsRESSO);
   
   const renderItem = (it, i) => `
     <div class="nav-item${i===0?' active':''}" data-view="${it.view}">
@@ -3051,6 +3117,9 @@ function buildTopbarParaModulo(mod){
   if(mod === 'rf'){
     if(brandName) brandName.textContent = 'SAR · Riesgos Fatales';
     if(brandSub) brandSub.textContent = 'Seguimiento RF';
+  } else if(mod === 'ejecutivo'){
+    if(brandName) brandName.textContent = 'SAR · Ejecutivo';
+    if(brandSub) brandSub.textContent = 'Vista Consolidada';
   } else {
     if(brandName) brandName.textContent = 'SAR · RESSO V9';
     if(brandSub) brandSub.textContent = 'SIGO-F-GE-148';
@@ -3059,7 +3128,15 @@ function buildTopbarParaModulo(mod){
   // Cambiar acciones del topbar
   const topActions = document.querySelector('.topbar-actions') || document.querySelector('.topbar .actions');
   if(topActions){
-    if(mod === 'rf'){
+    if(mod === 'ejecutivo'){
+      // El dashboard ejecutivo es solo lectura - solo botón de actualizar
+      topActions.innerHTML = `
+        <button class="btn btn-ghost btn-sm" onclick="render()" title="Actualizar datos">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+          <span>Actualizar</span>
+        </button>
+      `;
+    } else if(mod === 'rf'){
       topActions.innerHTML = `
         <button class="btn btn-ghost btn-sm" onclick="nuevoRF()" title="Nuevo seguimiento RF">
           <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
@@ -3137,6 +3214,8 @@ document.addEventListener('click', e=>{
   if(item && item.dataset.view){
     if(state.modulo === 'rf'){
       navigateRF(item.dataset.view);
+    } else if(state.modulo === 'ejecutivo'){
+      navigateEjecutivo(item.dataset.view);
     } else {
       navigate(item.dataset.view);
     }
@@ -3326,6 +3405,31 @@ function render(){
       else if(view==='ayuda') c.innerHTML = renderAyuda();
       else c.innerHTML = '<div class="page"><div class="empty">Vista no encontrada</div></div>';
       updateBadgesRF();
+      return;
+    }
+    
+    // Módulo EJECUTIVO
+    if(state.modulo === 'ejecutivo'){
+      c.innerHTML = '<div class="page"><div class="card"><div class="card-b"><div class="empty" style="padding:40px;text-align:center"><div style="font-size:32px;margin-bottom:10px">⏳</div><p style="color:var(--text-2)">Cargando datos consolidados desde la nube...</p></div></div></div></div>';
+      sb_cargarDashboardEjecutivo().then(data => {
+        if(!data){
+          c.innerHTML = '<div class="page"><div class="card"><div class="card-b"><div class="empty" style="padding:40px;text-align:center;color:var(--bad)"><h4>Error al cargar datos</h4><p>Verifica tu conexión a Supabase y que las vistas SQL estén creadas.</p></div></div></div></div>';
+          return;
+        }
+        if(view==='dashboard') c.innerHTML = renderDashboardEjecutivo(data);
+        else if(view==='ranking') c.innerHTML = renderRankingEjecutivo(data);
+        else if(view==='gerencias') c.innerHTML = renderGerenciasEjecutivo(data);
+        else if(view==='tendencia') c.innerHTML = renderTendenciaEjecutivo(data);
+        else if(view==='planes') c.innerHTML = renderPlanesCriticosEjecutivo(data);
+        else if(view==='rfglobal') c.innerHTML = renderRFGlobalEjecutivo(data);
+        else c.innerHTML = '<div class="page"><div class="empty">Vista no encontrada</div></div>';
+        // Charts del dashboard ejecutivo
+        if(view==='dashboard') setTimeout(()=>drawChartsEjecutivo(data), 50);
+        if(view==='tendencia') setTimeout(()=>drawTendenciaChart(data), 50);
+        // Actualizar badge planes críticos
+        const badgeCrit = document.getElementById('badge-planes-crit');
+        if(badgeCrit) badgeCrit.textContent = (data.planesCriticos||[]).filter(p=>p.urgencia==='Vencido').length;
+      });
       return;
     }
     
@@ -6199,6 +6303,466 @@ function renderHistorialRF(){
   `;
 }
 
+// ============================================================
+//  RENDER - MÓDULO EJECUTIVO
+// ============================================================
+
+function fmtPctNum(v){ if(v==null) return '—'; return (v*100).toFixed(1)+'%'; }
+function fmtNum(v){ return (v==null) ? '—' : v.toLocaleString('es-CL'); }
+function colorPct(v){
+  if(v==null) return 'var(--text-3)';
+  if(v >= 0.9) return 'var(--ok)';
+  if(v >= 0.7) return 'var(--warn)';
+  return 'var(--bad)';
+}
+
+function renderDashboardEjecutivo(data){
+  const k = data.kpis || {};
+  const pa = Number(k.promedio_resso) || 0;
+  const prf = Number(k.promedio_rf) || 0;
+  const totalAud = k.total_auditorias || 0;
+  
+  // Gauge para promedio RESSO
+  const angle = pa * 180;
+  const rad = (angle - 180) * Math.PI / 180;
+  const endX = 110 + 90 * Math.cos(rad);
+  const endY = 110 + 90 * Math.sin(rad);
+  const largeArc = angle > 180 ? 1 : 0;
+  const colorPa = colorPct(pa);
+  
+  return `
+    <div class="page">
+      <!-- Header ejecutivo -->
+      <div class="card" style="margin-bottom:18px;background:linear-gradient(135deg, #1e3a5f 0%, #2c5282 100%);color:#fff">
+        <div class="card-b" style="padding:24px 28px">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:20px;flex-wrap:wrap">
+            <div>
+              <div style="font-size:11px;opacity:.85;letter-spacing:1.2px;text-transform:uppercase">Dashboard Ejecutivo · Vista Consolidada</div>
+              <h1 style="font-size:24px;margin:4px 0 0 0;font-family:Archivo">Panorama Global del Sistema SAR</h1>
+              <div style="font-size:13px;opacity:.85;margin-top:6px">Última actualización: ${new Date().toLocaleString('es-CL')}</div>
+            </div>
+            <button class="btn btn-amber" onclick="render()" style="background:#fff;color:#1e3a5f">🔄 Actualizar</button>
+          </div>
+        </div>
+      </div>
+      
+      <!-- KPIs principales -->
+      <div style="display:grid;grid-template-columns:1.4fr 1fr 1fr 1fr 1fr;gap:14px;margin-bottom:18px">
+        <!-- Gauge promedio RESSO -->
+        <div class="card" style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:18px">
+          <div style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:.7px;margin-bottom:6px">Promedio General RESSO</div>
+          <svg viewBox="0 0 220 130" width="100%" style="max-width:220px">
+            <path d="M 20 110 A 90 90 0 0 1 200 110" fill="none" stroke="#f0ece5" stroke-width="14" stroke-linecap="round"/>
+            <path d="M 20 110 A 90 90 0 ${largeArc} 1 ${endX.toFixed(1)} ${endY.toFixed(1)}" fill="none" stroke="${colorPa}" stroke-width="14" stroke-linecap="round"/>
+            <text x="110" y="95" text-anchor="middle" font-size="32" font-weight="800" fill="${colorPa}" font-family="Archivo">${fmtPctNum(pa)}</text>
+            <text x="110" y="120" text-anchor="middle" font-size="11" fill="var(--text-3)" font-family="Inter" letter-spacing="1">SISTEMA</text>
+          </svg>
+        </div>
+        
+        <div class="card" style="padding:16px;display:flex;flex-direction:column;justify-content:center">
+          <div style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:.7px;margin-bottom:6px">Auditorías Totales</div>
+          <div style="font-size:34px;font-weight:800;color:var(--primary);font-family:Archivo;line-height:1">${totalAud}</div>
+          <div style="font-size:11px;color:var(--text-3);margin-top:4px">${k.total_empresas||0} empresas · ${k.total_gerencias||0} gerencias</div>
+        </div>
+        
+        <div class="card" style="padding:16px;display:flex;flex-direction:column;justify-content:center">
+          <div style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:.7px;margin-bottom:6px">Hallazgos N1+N2</div>
+          <div style="font-size:34px;font-weight:800;color:var(--bad);font-family:Archivo;line-height:1">${(k.total_hallazgos_n1||0) + (k.total_hallazgos_n2||0)}</div>
+          <div style="font-size:11px;color:var(--text-3);margin-top:4px">N1: ${k.total_hallazgos_n1||0} · N2: ${k.total_hallazgos_n2||0}</div>
+        </div>
+        
+        <div class="card" style="padding:16px;display:flex;flex-direction:column;justify-content:center">
+          <div style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:.7px;margin-bottom:6px">Planes Vencidos</div>
+          <div style="font-size:34px;font-weight:800;color:var(--bad);font-family:Archivo;line-height:1">${k.planes_vencidos||0}</div>
+          <div style="font-size:11px;color:var(--text-3);margin-top:4px">de ${k.total_planes||0} totales</div>
+        </div>
+        
+        <div class="card" style="padding:16px;display:flex;flex-direction:column;justify-content:center">
+          <div style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:.7px;margin-bottom:6px">% RF Promedio</div>
+          <div style="font-size:34px;font-weight:800;color:${colorPct(prf)};font-family:Archivo;line-height:1">${fmtPctNum(prf)}</div>
+          <div style="font-size:11px;color:var(--text-3);margin-top:4px">${k.total_seguimientos_rf||0} seguimientos</div>
+        </div>
+      </div>
+      
+      <!-- Distribución + Ranking Top -->
+      <div style="display:grid;grid-template-columns:1fr 1.4fr;gap:14px;margin-bottom:18px">
+        <div class="card">
+          <div class="card-h"><h3>Distribución de Auditorías RESSO</h3></div>
+          <div class="card-b">
+            ${(()=>{
+              const a = k.auditorias_aceptables||0;
+              const r = k.auditorias_regulares||0;
+              const d = k.auditorias_deficientes||0;
+              const total = a + r + d;
+              const row = (lbl, n, color) => {
+                const w = total ? (n/total)*100 : 0;
+                return `<div style="margin-bottom:12px">
+                  <div style="display:flex;justify-content:space-between;margin-bottom:4px;font-size:12px">
+                    <span style="color:var(--text-2)">${lbl}</span>
+                    <span style="font-weight:700;color:${color}">${n} (${w.toFixed(0)}%)</span>
+                  </div>
+                  <div style="height:8px;background:#f0ece5;border-radius:4px;overflow:hidden"><div style="height:100%;width:${w}%;background:${color};border-radius:4px;transition:.4s"></div></div>
+                </div>`;
+              };
+              return row('Aceptable (≥90%)', a, 'var(--ok)')
+                   + row('Regular (70–90%)', r, 'var(--warn)')
+                   + row('Deficiente (<70%)', d, 'var(--bad)');
+            })()}
+            <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--line);display:flex;justify-content:space-between;font-size:11px;color:var(--text-3)">
+              <span>Planes pendientes: <b style="color:var(--warn)">${k.planes_pendientes||0}</b></span>
+              <span>Completados: <b style="color:var(--ok)">${k.planes_completados||0}</b></span>
+            </div>
+          </div>
+        </div>
+        
+        <div class="card">
+          <div class="card-h">
+            <h3>Top 5 Empresas · Mejor Desempeño</h3>
+            <a href="#" onclick="navigate('ranking');return false" style="font-size:11px;color:var(--primary)">Ver completo →</a>
+          </div>
+          <div class="card-b">
+            ${(data.ranking||[]).slice(0,5).map((e,i)=>{
+              const pct = Number(e.promedio)||0;
+              const col = colorPct(pct);
+              return `<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+                <div style="width:24px;height:24px;background:${i===0?'#FFD700':(i===1?'#C0C0C0':(i===2?'#CD7F32':'#f5f5f4'))};color:${i<3?'#000':'var(--text-3)'};border-radius:50%;display:grid;place-items:center;font-weight:800;font-size:12px;font-family:Archivo">${i+1}</div>
+                <div style="flex:1;min-width:0">
+                  <div style="font-size:13px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(e.empresa)}</div>
+                  <div style="font-size:11px;color:var(--text-3)">${e.num_auditorias} auditoría${e.num_auditorias!=1?'s':''}</div>
+                </div>
+                <div style="text-align:right">
+                  <div style="font-size:15px;font-weight:800;color:${col};font-family:Archivo">${fmtPctNum(pct)}</div>
+                  <div style="font-size:9px;color:var(--text-3);text-transform:uppercase">${e.clasificacion_promedio}</div>
+                </div>
+              </div>`;
+            }).join('')}
+            ${(data.ranking||[]).length === 0 ? '<div class="empty" style="padding:20px;text-align:center;color:var(--text-3);font-size:12px">Aún no hay auditorías guardadas</div>' : ''}
+          </div>
+        </div>
+      </div>
+      
+      <!-- Planes críticos -->
+      <div class="card">
+        <div class="card-h">
+          <h3>⚠️ Planes de Acción Vencidos · Acción Inmediata</h3>
+          <a href="#" onclick="navigate('planes');return false" style="font-size:11px;color:var(--primary)">Ver todos →</a>
+        </div>
+        <div class="card-b">
+          ${(()=>{
+            const vencidos = (data.planesCriticos||[]).filter(p=>p.urgencia==='Vencido').slice(0,8);
+            if(vencidos.length === 0){
+              return '<div class="empty" style="padding:24px;text-align:center;color:var(--ok)"><div style="font-size:32px">✅</div><p style="margin:8px 0 0 0;font-weight:600">Sin planes vencidos</p><p style="font-size:12px;color:var(--text-3);margin-top:4px">Todos los compromisos están al día</p></div>';
+            }
+            return `<table style="width:100%;border-collapse:collapse;background:#fff;font-size:12px">
+              <thead style="background:#faf8f5">
+                <tr>
+                  <th style="padding:9px 10px;font-size:10px;text-align:left;text-transform:uppercase;letter-spacing:.6px;color:var(--text-3)">Empresa</th>
+                  <th style="padding:9px 10px;font-size:10px;text-align:left;text-transform:uppercase;letter-spacing:.6px;color:var(--text-3)">Descripción</th>
+                  <th style="padding:9px 10px;font-size:10px;text-align:left;text-transform:uppercase;letter-spacing:.6px;color:var(--text-3)">Responsable</th>
+                  <th style="padding:9px 10px;font-size:10px;text-align:center;text-transform:uppercase;letter-spacing:.6px;color:var(--text-3)">Vencido hace</th>
+                  <th style="padding:9px 10px;font-size:10px;text-align:center;text-transform:uppercase;letter-spacing:.6px;color:var(--text-3)">Estado</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${vencidos.map(p=>`<tr style="border-bottom:1px solid #f0ece5">
+                  <td style="padding:9px 10px;font-weight:600">${escapeHtml(p.empresa||'—')}</td>
+                  <td style="padding:9px 10px;max-width:300px">${escapeHtml((p.descripcion||'').slice(0,80))}${(p.descripcion||'').length>80?'...':''}</td>
+                  <td style="padding:9px 10px;color:var(--text-2)">${escapeHtml(p.responsable||'—')}</td>
+                  <td style="padding:9px 10px;text-align:center;color:var(--bad);font-weight:700">${p.dias_desde_vencimiento||0} días</td>
+                  <td style="padding:9px 10px;text-align:center"><span style="padding:3px 8px;background:var(--bad);color:#fff;border-radius:10px;font-size:10px;font-weight:600">${escapeHtml(p.estado)}</span></td>
+                </tr>`).join('')}
+              </tbody>
+            </table>`;
+          })()}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderRankingEjecutivo(data){
+  const ranking = data.ranking || [];
+  return `
+    <div class="page">
+      <div class="card">
+        <div class="card-h">
+          <h3>Ranking de Empresas Contratistas</h3>
+          <div style="font-size:11px;color:var(--text-3)">${ranking.length} empresas auditadas</div>
+        </div>
+        <div class="card-b">
+          ${ranking.length === 0 ? '<div class="empty" style="padding:40px;text-align:center;color:var(--text-3)">Aún no hay auditorías guardadas</div>' : `
+            <table style="width:100%;border-collapse:collapse;background:#fff">
+              <thead style="background:#faf8f5">
+                <tr>
+                  <th style="padding:10px;text-align:center;font-size:10px;text-transform:uppercase;letter-spacing:.6px;color:var(--text-3)">#</th>
+                  <th style="padding:10px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.6px;color:var(--text-3)">Empresa</th>
+                  <th style="padding:10px;text-align:center;font-size:10px;text-transform:uppercase;letter-spacing:.6px;color:var(--text-3)">Auditorías</th>
+                  <th style="padding:10px;text-align:center;font-size:10px;text-transform:uppercase;letter-spacing:.6px;color:var(--text-3)">Última</th>
+                  <th style="padding:10px;text-align:center;font-size:10px;text-transform:uppercase;letter-spacing:.6px;color:var(--text-3)">Promedio</th>
+                  <th style="padding:10px;text-align:center;font-size:10px;text-transform:uppercase;letter-spacing:.6px;color:var(--text-3)">Actual</th>
+                  <th style="padding:10px;text-align:center;font-size:10px;text-transform:uppercase;letter-spacing:.6px;color:var(--text-3)">Mejor</th>
+                  <th style="padding:10px;text-align:center;font-size:10px;text-transform:uppercase;letter-spacing:.6px;color:var(--text-3)">Peor</th>
+                  <th style="padding:10px;text-align:center;font-size:10px;text-transform:uppercase;letter-spacing:.6px;color:var(--text-3)">Clasificación</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${ranking.map((e,i)=>{
+                  const prom = Number(e.promedio)||0;
+                  const act = Number(e.resultado_actual)||0;
+                  const mej = Number(e.mejor)||0;
+                  const peo = Number(e.peor)||0;
+                  const cls = e.clasificacion_promedio;
+                  const colCls = cls==='Aceptable'?'var(--ok)':(cls==='Regular'?'var(--warn)':'var(--bad)');
+                  return `<tr style="border-bottom:1px solid #f0ece5">
+                    <td style="padding:10px;text-align:center"><div style="width:24px;height:24px;background:${i===0?'#FFD700':(i===1?'#C0C0C0':(i===2?'#CD7F32':'#f5f5f4'))};color:${i<3?'#000':'var(--text-3)'};border-radius:50%;display:inline-grid;place-items:center;font-weight:800;font-size:11px">${i+1}</div></td>
+                    <td style="padding:10px;font-weight:600">${escapeHtml(e.empresa)}</td>
+                    <td style="padding:10px;text-align:center;color:var(--text-2)">${e.num_auditorias}</td>
+                    <td style="padding:10px;text-align:center;color:var(--text-2);font-size:11px">${e.ultima_auditoria||'—'}</td>
+                    <td style="padding:10px;text-align:center;font-weight:700;color:${colorPct(prom)}">${fmtPctNum(prom)}</td>
+                    <td style="padding:10px;text-align:center;color:${colorPct(act)};font-weight:600">${fmtPctNum(act)}</td>
+                    <td style="padding:10px;text-align:center;color:var(--ok);font-size:11px">${fmtPctNum(mej)}</td>
+                    <td style="padding:10px;text-align:center;color:var(--bad);font-size:11px">${fmtPctNum(peo)}</td>
+                    <td style="padding:10px;text-align:center"><span style="padding:3px 8px;background:${colCls};color:#fff;border-radius:10px;font-size:10px;font-weight:600">${cls}</span></td>
+                  </tr>`;
+                }).join('')}
+              </tbody>
+            </table>
+          `}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderGerenciasEjecutivo(data){
+  const gers = data.gerencias || [];
+  return `
+    <div class="page">
+      <div class="card">
+        <div class="card-h">
+          <h3>Desempeño por Gerencia</h3>
+          <div style="font-size:11px;color:var(--text-3)">${gers.length} gerencias con auditorías</div>
+        </div>
+        <div class="card-b">
+          ${gers.length === 0 ? '<div class="empty" style="padding:40px;text-align:center;color:var(--text-3)">Sin datos de gerencias</div>' : `
+            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px">
+              ${gers.map(g => {
+                const prom = Number(g.promedio_resultado)||0;
+                const col = colorPct(prom);
+                return `<div class="card" style="border-left:4px solid ${col}">
+                  <div class="card-b" style="padding:16px">
+                    <div style="font-size:11px;color:var(--text-3);text-transform:uppercase;letter-spacing:.7px;margin-bottom:4px">Gerencia</div>
+                    <div style="font-size:15px;font-weight:700;margin-bottom:10px;line-height:1.3">${escapeHtml(g.gerencia)}</div>
+                    <div style="font-size:30px;font-weight:800;color:${col};font-family:Archivo;line-height:1;margin-bottom:10px">${fmtPctNum(prom)}</div>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:11px;color:var(--text-2)">
+                      <div><div style="color:var(--text-3);font-size:9px;text-transform:uppercase">Auditorías</div><b style="font-size:14px;color:var(--text)">${g.num_auditorias}</b></div>
+                      <div><div style="color:var(--text-3);font-size:9px;text-transform:uppercase">Empresas</div><b style="font-size:14px;color:var(--text)">${g.num_empresas}</b></div>
+                      <div><div style="color:var(--text-3);font-size:9px;text-transform:uppercase">Planes abiertos</div><b style="font-size:14px;color:var(--warn)">${g.planes_abiertos}</b></div>
+                      <div><div style="color:var(--text-3);font-size:9px;text-transform:uppercase">Vencidos</div><b style="font-size:14px;color:var(--bad)">${g.planes_vencidos}</b></div>
+                    </div>
+                  </div>
+                </div>`;
+              }).join('')}
+            </div>
+          `}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderTendenciaEjecutivo(data){
+  const t = data.tendencia || [];
+  return `
+    <div class="page">
+      <div class="card">
+        <div class="card-h">
+          <h3>Tendencia Mensual de Auditorías</h3>
+          <div style="font-size:11px;color:var(--text-3)">Últimos ${t.length} meses</div>
+        </div>
+        <div class="card-b">
+          ${t.length === 0 ? '<div class="empty" style="padding:40px;text-align:center;color:var(--text-3)">Sin datos de tendencia</div>' : `
+            <canvas id="chartTendencia" style="max-height:340px"></canvas>
+            <h4 style="font-size:13px;margin:18px 0 8px 0;color:var(--text-2)">Detalle por mes</h4>
+            <table style="width:100%;border-collapse:collapse;background:#fff;font-size:12px">
+              <thead style="background:#faf8f5">
+                <tr>
+                  <th style="padding:9px 10px;font-size:10px;text-align:left;text-transform:uppercase;letter-spacing:.6px;color:var(--text-3)">Mes</th>
+                  <th style="padding:9px 10px;font-size:10px;text-align:center;text-transform:uppercase;letter-spacing:.6px;color:var(--text-3)">Total</th>
+                  <th style="padding:9px 10px;font-size:10px;text-align:center;text-transform:uppercase;letter-spacing:.6px;color:var(--text-3)">Aceptables</th>
+                  <th style="padding:9px 10px;font-size:10px;text-align:center;text-transform:uppercase;letter-spacing:.6px;color:var(--text-3)">Regulares</th>
+                  <th style="padding:9px 10px;font-size:10px;text-align:center;text-transform:uppercase;letter-spacing:.6px;color:var(--text-3)">Deficientes</th>
+                  <th style="padding:9px 10px;font-size:10px;text-align:center;text-transform:uppercase;letter-spacing:.6px;color:var(--text-3)">Promedio</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${t.map(m => {
+                  const prom = Number(m.promedio)||0;
+                  return `<tr style="border-bottom:1px solid #f0ece5">
+                    <td style="padding:9px 10px;font-weight:600">${m.mes_label}</td>
+                    <td style="padding:9px 10px;text-align:center;font-weight:700">${m.num_auditorias}</td>
+                    <td style="padding:9px 10px;text-align:center;color:var(--ok)">${m.aceptables}</td>
+                    <td style="padding:9px 10px;text-align:center;color:var(--warn)">${m.regulares}</td>
+                    <td style="padding:9px 10px;text-align:center;color:var(--bad)">${m.deficientes}</td>
+                    <td style="padding:9px 10px;text-align:center;font-weight:700;color:${colorPct(prom)}">${fmtPctNum(prom)}</td>
+                  </tr>`;
+                }).join('')}
+              </tbody>
+            </table>
+          `}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function drawTendenciaChart(data){
+  const t = (data.tendencia || []).slice().reverse();
+  const canvas = document.getElementById('chartTendencia');
+  if(!canvas || !t.length) return;
+  if(window._chartTendencia){ try{ window._chartTendencia.destroy(); }catch(e){} }
+  window._chartTendencia = new Chart(canvas.getContext('2d'), {
+    type: 'line',
+    data: {
+      labels: t.map(m=>m.mes_label),
+      datasets: [{
+        label: 'Promedio mensual',
+        data: t.map(m=>(Number(m.promedio)||0)*100),
+        borderColor: '#E87722',
+        backgroundColor: 'rgba(232,119,34,.15)',
+        fill: true,
+        tension: .3,
+        pointRadius: 5,
+        pointBackgroundColor: '#E87722',
+      }, {
+        label: 'Cantidad de auditorías',
+        data: t.map(m=>m.num_auditorias),
+        borderColor: '#1e3a5f',
+        backgroundColor: 'rgba(30,58,95,.1)',
+        yAxisID: 'y1',
+        tension: .3,
+        pointRadius: 4,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: {
+        y: { beginAtZero: true, max: 100, title:{display:true, text:'% Cumplimiento'}, ticks:{callback:v=>v+'%'} },
+        y1: { beginAtZero: true, position: 'right', grid:{display:false}, title:{display:true, text:'Nº Auditorías'} }
+      }
+    }
+  });
+}
+
+function drawChartsEjecutivo(data){
+  // Por ahora el dashboard ejecutivo principal no tiene Chart.js (todo es SVG/HTML)
+  // Pero dejo la función disponible por si quieres agregar gráficos
+}
+
+function renderPlanesCriticosEjecutivo(data){
+  const todos = data.planesCriticos || [];
+  const vencidos = todos.filter(p=>p.urgencia==='Vencido');
+  const proximos = todos.filter(p=>p.urgencia==='Próximo a vencer');
+  const aTiempo = todos.filter(p=>p.urgencia==='A tiempo');
+  return `
+    <div class="page">
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-bottom:18px">
+        <div class="card" style="border-left:4px solid var(--bad)">
+          <div class="card-b" style="padding:14px"><div style="font-size:10px;color:var(--text-3);text-transform:uppercase">Vencidos</div><div style="font-size:32px;font-weight:800;color:var(--bad);font-family:Archivo">${vencidos.length}</div></div>
+        </div>
+        <div class="card" style="border-left:4px solid var(--warn)">
+          <div class="card-b" style="padding:14px"><div style="font-size:10px;color:var(--text-3);text-transform:uppercase">Próximos a vencer (7 días)</div><div style="font-size:32px;font-weight:800;color:var(--warn);font-family:Archivo">${proximos.length}</div></div>
+        </div>
+        <div class="card" style="border-left:4px solid var(--ok)">
+          <div class="card-b" style="padding:14px"><div style="font-size:10px;color:var(--text-3);text-transform:uppercase">A tiempo</div><div style="font-size:32px;font-weight:800;color:var(--ok);font-family:Archivo">${aTiempo.length}</div></div>
+        </div>
+      </div>
+      
+      <div class="card">
+        <div class="card-h"><h3>Listado completo de planes críticos</h3></div>
+        <div class="card-b">
+          ${todos.length === 0 ? '<div class="empty" style="padding:40px;text-align:center;color:var(--text-3)">Sin planes abiertos</div>' : `
+            <table style="width:100%;border-collapse:collapse;background:#fff;font-size:12px">
+              <thead style="background:#faf8f5">
+                <tr>
+                  <th style="padding:9px 10px;font-size:10px;text-align:center;text-transform:uppercase;letter-spacing:.6px;color:var(--text-3)">Urgencia</th>
+                  <th style="padding:9px 10px;font-size:10px;text-align:left;text-transform:uppercase;letter-spacing:.6px;color:var(--text-3)">Empresa</th>
+                  <th style="padding:9px 10px;font-size:10px;text-align:left;text-transform:uppercase;letter-spacing:.6px;color:var(--text-3)">Gerencia</th>
+                  <th style="padding:9px 10px;font-size:10px;text-align:left;text-transform:uppercase;letter-spacing:.6px;color:var(--text-3)">Descripción</th>
+                  <th style="padding:9px 10px;font-size:10px;text-align:left;text-transform:uppercase;letter-spacing:.6px;color:var(--text-3)">Responsable</th>
+                  <th style="padding:9px 10px;font-size:10px;text-align:center;text-transform:uppercase;letter-spacing:.6px;color:var(--text-3)">Compromiso</th>
+                  <th style="padding:9px 10px;font-size:10px;text-align:center;text-transform:uppercase;letter-spacing:.6px;color:var(--text-3)">Estado</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${todos.map(p => {
+                  const col = p.urgencia==='Vencido'?'var(--bad)':(p.urgencia==='Próximo a vencer'?'var(--warn)':'var(--ok)');
+                  return `<tr style="border-bottom:1px solid #f0ece5">
+                    <td style="padding:9px 10px;text-align:center"><span style="padding:3px 8px;background:${col};color:#fff;border-radius:10px;font-size:9px;font-weight:700;letter-spacing:.5px">${p.urgencia.toUpperCase()}</span></td>
+                    <td style="padding:9px 10px;font-weight:600">${escapeHtml(p.empresa||'—')}</td>
+                    <td style="padding:9px 10px;color:var(--text-2)">${escapeHtml(p.gerencia||'—')}</td>
+                    <td style="padding:9px 10px;max-width:280px">${escapeHtml((p.descripcion||'').slice(0,100))}${(p.descripcion||'').length>100?'...':''}</td>
+                    <td style="padding:9px 10px;color:var(--text-2)">${escapeHtml(p.responsable||'—')}</td>
+                    <td style="padding:9px 10px;text-align:center;color:var(--text-2)">${p.fecha_compromiso||'—'}</td>
+                    <td style="padding:9px 10px;text-align:center"><span style="padding:3px 8px;background:#faf8f5;border-radius:10px;font-size:10px;font-weight:600">${escapeHtml(p.estado)}</span></td>
+                  </tr>`;
+                }).join('')}
+              </tbody>
+            </table>
+          `}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderRFGlobalEjecutivo(data){
+  const rfs = data.rfGlobal || [];
+  const aplicables = rfs.filter(r=>(r.veces_aplicable||0)>0);
+  return `
+    <div class="page">
+      <div class="card">
+        <div class="card-h">
+          <h3>Cumplimiento Global de los 24 Riesgos de Fatalidad</h3>
+          <div style="font-size:11px;color:var(--text-3)">${aplicables.length} RF aplicables a nivel sistema</div>
+        </div>
+        <div class="card-b">
+          ${aplicables.length === 0 ? '<div class="empty" style="padding:40px;text-align:center;color:var(--text-3)">Aún no hay seguimientos RF guardados</div>' : `
+            <table style="width:100%;border-collapse:collapse;background:#fff">
+              <thead style="background:#faf8f5">
+                <tr>
+                  <th style="padding:10px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.6px;color:var(--text-3)">RF</th>
+                  <th style="padding:10px;text-align:center;font-size:10px;text-transform:uppercase;letter-spacing:.6px;color:var(--text-3)">Aplicable en</th>
+                  <th style="padding:10px;text-align:center;font-size:10px;text-transform:uppercase;letter-spacing:.6px;color:var(--text-3)">Cumplimiento Promedio</th>
+                  <th style="padding:10px;text-align:center;font-size:10px;text-transform:uppercase;letter-spacing:.6px;color:var(--text-3)">Peor caso</th>
+                  <th style="padding:10px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.6px;color:var(--text-3)">Indicador</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${aplicables.map(r => {
+                  const prom = Number(r.cumplimiento_promedio)||0;
+                  const peo = Number(r.peor_cumplimiento)||0;
+                  const cls = clasificarRF(prom);
+                  const w = prom*100;
+                  const nombreRF = (typeof RF_CATALOGO !== 'undefined' && RF_CATALOGO[r.codigo_rf]) ? RF_CATALOGO[r.codigo_rf].nombre : '';
+                  return `<tr style="border-bottom:1px solid #f0ece5">
+                    <td style="padding:10px"><b>${r.codigo_rf}</b><div style="font-size:10px;color:var(--text-3)">${escapeHtml(nombreRF.slice(0,40))}</div></td>
+                    <td style="padding:10px;text-align:center"><b>${r.veces_aplicable}</b> <span style="font-size:10px;color:var(--text-3)">/ ${r.num_seguimientos} seg.</span></td>
+                    <td style="padding:10px;text-align:center;font-weight:700;color:${cls.color};font-family:Archivo;font-size:14px">${fmtPctNum(prom)}</td>
+                    <td style="padding:10px;text-align:center;color:var(--bad);font-size:12px">${fmtPctNum(peo)}</td>
+                    <td style="padding:10px;width:30%"><div style="height:10px;background:#f0ece5;border-radius:5px;overflow:hidden"><div style="height:100%;width:${w}%;background:${cls.color};border-radius:5px"></div></div></td>
+                  </tr>`;
+                }).join('')}
+              </tbody>
+            </table>
+          `}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
 // ---------------- INIT ----------------
 function initApp(){
   // Cargar usuario
@@ -6220,6 +6784,9 @@ function initApp(){
     if(!state.seguimientoRF) state.seguimientoRF = emptyRF();
     calcularRF(false);
     navigateRF('dashboard');
+  } else if(state.modulo === 'ejecutivo'){
+    // Módulo ejecutivo: solo navega al dashboard, el render() cargará los datos
+    navigateEjecutivo('dashboard');
   } else {
     // Módulo RESSO original
     loadCurrent();
@@ -6227,6 +6794,30 @@ function initApp(){
     updateBadges();
     navigate('dashboard');
   }
+}
+
+// Navegación del módulo ejecutivo
+function navigateEjecutivo(view){
+  state.currentView = view;
+  // Marcar nav-item activo
+  document.querySelectorAll('.nav-item').forEach(n=>{
+    n.classList.toggle('active', n.dataset.view === view);
+  });
+  // Actualizar título topbar
+  const titulos = {
+    dashboard: ['Resumen Ejecutivo', 'Panorama global del sistema'],
+    ranking: ['Ranking de Empresas', 'Empresas ordenadas por desempeño'],
+    gerencias: ['Por Gerencia', 'Desempeño por gerencia de Codelco'],
+    tendencia: ['Tendencia Mensual', 'Evolución temporal de auditorías'],
+    planes: ['Planes Críticos', 'Planes de acción vencidos o por vencer'],
+    rfglobal: ['RF Global', 'Cumplimiento de los 24 RF a nivel sistema'],
+  };
+  const t = titulos[view] || [view, ''];
+  const crumb = document.getElementById('crumb');
+  const titulo = document.getElementById('pageTitle');
+  if(crumb) crumb.textContent = 'Ejecutivo · ' + t[0];
+  if(titulo) titulo.textContent = t[1] || t[0];
+  render();
 }
 
 window.addEventListener('load', async ()=>{

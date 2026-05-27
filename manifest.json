@@ -1,0 +1,28 @@
+{
+  "name": "SAR·RESSO V9 — Auditoría de Seguridad",
+  "short_name": "SAR·RESSO",
+  "description": "Sistema de Auditoría RESSO para empresas contratistas. SIGO-F-GE-148.",
+  "start_url": "/index.html",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "theme_color": "#1B3A6B",
+  "background_color": "#F5F2EE",
+  "lang": "es",
+  "scope": "/",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'%3E%3Crect width='192' height='192' fill='%231B3A6B' rx='32'/%3E%3Ctext x='50%25' y='55%25' font-size='110' text-anchor='middle' dominant-baseline='middle' fill='%23E8612A' font-family='Arial'%3E%E2%9C%93%3C/text%3E%3C/svg%3E",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' fill='%231B3A6B' rx='80'/%3E%3Ctext x='50%25' y='55%25' font-size='300' text-anchor='middle' dominant-baseline='middle' fill='%23E8612A' font-family='Arial'%3E%E2%9C%93%3C/text%3E%3C/svg%3E",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["productivity", "utilities"],
+  "prefer_related_applications": false
+}

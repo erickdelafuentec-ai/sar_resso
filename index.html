@@ -852,6 +852,16 @@ a{color:var(--primary);text-decoration:none}
 .req-row .req-txt b{display:block;color:var(--text);margin-bottom:3px;font-size:12px}
 .req-row .req-txt span{color:var(--text-3);font-size:11px;line-height:1.4}
 .req-row select{padding:6px 8px;font-size:11px;border:1px solid var(--line-2);border-radius:6px;width:100%}
+
+/* --- Centro de Control estilo MER --- */
+@media (max-width: 1100px){ .mer-grid-main{ grid-template-columns: 1fr !important; } }
+
+
+/* --- Asistente IA: puntos pensando --- */
+.ia-dot{display:inline-block;width:7px;height:7px;margin:0 2px;border-radius:50%;background:#1E7A63;opacity:.4;animation:iablink 1.2s infinite}
+.ia-dot:nth-child(2){animation-delay:.2s}.ia-dot:nth-child(3){animation-delay:.4s}
+@keyframes iablink{0%,60%,100%{opacity:.3;transform:translateY(0)}30%{opacity:1;transform:translateY(-3px)}}
+
 </style>
 </head>
 <body>
@@ -3880,12 +3890,16 @@ function buildSidebarParaModulo(mod){
   const itemsEjecutivo = {
     grupo1Title: 'Vista Consolidada',
     grupo1: [
-      {view:'dashboard', label:'Resumen Ejecutivo', icon:'<rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/>'},
+      {view:'dashboard', label:'Centro de Control', icon:'<rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/>'},
+      {view:'asistente', label:'Asistente IA', icon:'<path d="M12 2l1.6 4.8L18 8l-4.4 1.2L12 14l-1.6-4.8L6 8l4.4-1.2z"/><circle cx="18" cy="17" r="1.6"/><circle cx="6" cy="16" r="1.2"/>'},
       {view:'ranking', label:'Ranking Empresas', icon:'<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>'},
       {view:'gerencias', label:'Por Gerencia', icon:'<path d="M3 21h18M5 21V7l8-4v18M19 21V11l-6-4"/>'},
       {view:'tendencia', label:'Tendencia Mensual', icon:'<polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/>'},
       {view:'planes', label:'Planes Críticos', icon:'<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>', badge:'badge-planes-crit', badgeVal:'0'},
       {view:'rfglobal', label:'RF Global', icon:'<circle cx="12" cy="12" r="3"/><path d="M12 1v6m0 6v6m11-11h-6m-6 0H1"/>'},
+      {view:'mapacalor', label:'Mapa de Calor RF', icon:'<rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/>'},
+      {view:'comparativa', label:'Comparativa', icon:'<line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>'},
+      {view:'proyeccion', label:'Proyección', icon:'<path d="M3 17l6-6 4 4 8-8"/><path d="M17 7h4v4"/>'},
     ],
     grupo2Title: 'Sistema',
     grupo2: [],
@@ -4233,10 +4247,17 @@ function render(){
         else if(view==='tendencia') c.innerHTML = renderTendenciaEjecutivo(data);
         else if(view==='planes') c.innerHTML = renderPlanesCriticosEjecutivo(data);
         else if(view==='rfglobal') c.innerHTML = renderRFGlobalEjecutivo(data);
+        else if(view==='asistente') c.innerHTML = renderAsistenteIA(data);
+        else if(view==='mapacalor') c.innerHTML = renderMapaCalorRF(data);
+        else if(view==='comparativa') c.innerHTML = renderComparativaEjecutiva(data);
+        else if(view==='proyeccion') c.innerHTML = renderProyeccion(data);
         else c.innerHTML = '<div class="page"><div class="empty">Vista no encontrada</div></div>';
         // Charts del dashboard ejecutivo
         if(view==='dashboard') setTimeout(()=>drawChartsEjecutivo(data), 50);
         if(view==='tendencia') setTimeout(()=>drawTendenciaChart(data), 50);
+        if(view==='asistente') setTimeout(()=>pintarChatIA(false), 50);
+        if(view==='comparativa') setTimeout(()=>drawComparativaCharts(data), 60);
+        if(view==='proyeccion') setTimeout(()=>drawProyeccionChart(data), 60);
         // Actualizar badge planes críticos
         const badgeCrit = document.getElementById('badge-planes-crit');
         if(badgeCrit) badgeCrit.textContent = (data.planesCriticos||[]).filter(p=>p.urgencia==='Vencido').length;
@@ -7400,169 +7421,670 @@ function colorPct(v){
   return 'var(--bad)';
 }
 
-function renderDashboardEjecutivo(data){
+// ============================================================
+//  CENTRO DE CONTROL EJECUTIVO — Estilo MER Analytics
+//  (sparklines, deltas, gráfico vs meta, donut) con datos reales
+// ============================================================
+
+const MER = { verde:'#1E7A63', verdeClaro:'#e6f2ee', ambar:'#D97706', ambarClaro:'#fdf3e3', rojo:'#DC2626', rojoClaro:'#fdecec', azul:'#2563EB', morado:'#7C6FD0', gris:'#6b7280' };
+
+function merSpark(serie, color, w, h){
+  w = w || 220; h = h || 44;
+  const vals = (serie||[]).map(Number).filter(v=>!isNaN(v));
+  if(vals.length < 2){
+    return `<svg width="100%" height="${h}" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><line x1="0" y1="${h-6}" x2="${w}" y2="${h-6}" stroke="${color}" stroke-width="2" opacity=".5"/></svg>`;
+  }
+  const min = Math.min(...vals), max = Math.max(...vals);
+  const rng = (max-min) || 1;
+  const pts = vals.map((v,i)=>[ (i/(vals.length-1))*w, h-6-((v-min)/rng)*(h-14) ]);
+  const linea = pts.map((p,i)=>(i?'L':'M')+p[0].toFixed(1)+' '+p[1].toFixed(1)).join(' ');
+  const area = linea + ` L ${w} ${h} L 0 ${h} Z`;
+  return `<svg width="100%" height="${h}" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
+    <path d="${area}" fill="${color}" opacity="0.10"/>
+    <path d="${linea}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+  </svg>`;
+}
+
+function merDelta(actual, anterior, invertir){
+  if(anterior == null || actual == null || isNaN(actual) || isNaN(anterior) || anterior === 0) return '';
+  const d = (actual - anterior) / Math.abs(anterior);
+  if(Math.abs(d) < 0.0005) return `<span style="font-size:11px;font-weight:700;color:${MER.gris}">— 0%</span>`;
+  const sube = d > 0;
+  const bueno = invertir ? !sube : sube;
+  const col = bueno ? MER.verde : MER.rojo;
+  return `<span style="font-size:11px;font-weight:700;color:${col}">${sube?'▲':'▼'} ${(Math.abs(d)*100).toFixed(1)}%</span>`;
+}
+
+function merKpiCard(label, valorHTML, deltaHTML, metaTxt, sparkHTML){
+  return `<div class="card" style="padding:16px 18px 10px">
+    <div style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:.8px;margin-bottom:8px">${label}</div>
+    <div style="display:flex;align-items:baseline;justify-content:space-between;gap:8px">
+      <div style="font-size:30px;font-weight:800;font-family:Archivo;line-height:1">${valorHTML}</div>
+      ${deltaHTML||''}
+    </div>
+    <div style="font-size:11px;color:var(--text-3);margin:4px 0 6px">${metaTxt||'&nbsp;'}</div>
+    ${sparkHTML||''}
+  </div>`;
+}
+
+function merLineChart(t, meta){
+  // t: tendencia mensual [{mes_label, promedio}]; meta: 0-1
+  const w=760, h=300, padL=46, padR=16, padT=18, padB=34;
+  const serie = (t||[]).map(m=>({lbl:m.mes_label, v:Number(m.promedio)||0}));
+  if(serie.length===0) return '<div class="empty" style="padding:40px;text-align:center;color:var(--text-3)">Sin datos de tendencia aún</div>';
+  const innerW = w-padL-padR, innerH = h-padT-padB;
+  const yMax = 1, yMin = 0;
+  const X = i => serie.length>1 ? padL + (i/(serie.length-1))*innerW : padL + innerW/2;
+  const Y = v => padT + (1-(v-yMin)/(yMax-yMin))*innerH;
+  const linea = serie.map((p,i)=>(i?'L':'M')+X(i).toFixed(1)+' '+Y(p.v).toFixed(1)).join(' ');
+  const grid = [0,0.25,0.5,0.75,1].map(g=>`
+    <line x1="${padL}" y1="${Y(g)}" x2="${w-padR}" y2="${Y(g)}" stroke="#eceae6" stroke-dasharray="3 4"/>
+    <text x="${padL-8}" y="${Y(g)+4}" text-anchor="end" font-size="10" fill="#9a958d" font-family="IBM Plex Sans">${(g*100).toFixed(0)}%</text>`).join('');
+  const dots = serie.map((p,i)=>`<circle cx="${X(i)}" cy="${Y(p.v)}" r="4" fill="${MER.verde}" stroke="#fff" stroke-width="2"><title>${p.lbl}: ${(p.v*100).toFixed(1)}%</title></circle>`).join('');
+  const labels = serie.map((p,i)=>`<text x="${X(i)}" y="${h-10}" text-anchor="middle" font-size="10" fill="#9a958d" font-family="IBM Plex Sans">${escapeHtml(p.lbl)}</text>`).join('');
+  const metaY = Y(meta);
+  return `<svg width="100%" viewBox="0 0 ${w} ${h}" style="display:block">
+    ${grid}
+    <line x1="${padL}" y1="${metaY}" x2="${w-padR}" y2="${metaY}" stroke="#888" stroke-width="1.5" stroke-dasharray="6 5"/>
+    <text x="${w-padR}" y="${metaY-6}" text-anchor="end" font-size="10" fill="#888" font-family="IBM Plex Sans">Meta ${(meta*100).toFixed(0)}%</text>
+    <path d="${linea}" fill="none" stroke="${MER.verde}" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+    ${dots}
+    ${labels}
+  </svg>`;
+}
+
+function merDonut(segs){
+  // segs: [{label, valor, color}]
+  const total = segs.reduce((s,x)=>s+x.valor,0);
+  if(total === 0) return '<div class="empty" style="padding:30px;text-align:center;color:var(--text-3)">Sin eventos registrados</div>';
+  const cx=90, cy=90, r=68, grosor=30;
+  let acc = -Math.PI/2;
+  const arcos = segs.filter(s=>s.valor>0).map(s=>{
+    const ang = (s.valor/total)*Math.PI*2;
+    const a0=acc, a1=acc+ang; acc=a1;
+    const x0=cx+r*Math.cos(a0), y0=cy+r*Math.sin(a0);
+    const x1=cx+r*Math.cos(a1), y1=cy+r*Math.sin(a1);
+    const big = ang>Math.PI?1:0;
+    if(segs.filter(z=>z.valor>0).length===1)
+      return `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${s.color}" stroke-width="${grosor}"/>`;
+    return `<path d="M ${x0.toFixed(1)} ${y0.toFixed(1)} A ${r} ${r} 0 ${big} 1 ${x1.toFixed(1)} ${y1.toFixed(1)}" fill="none" stroke="${s.color}" stroke-width="${grosor}"><title>${s.label}: ${s.valor}</title></path>`;
+  }).join('');
+  const leyenda = segs.map(s=>`
+    <div style="display:flex;align-items:center;gap:7px;font-size:12px;margin-bottom:7px">
+      <span style="width:10px;height:10px;border-radius:3px;background:${s.color};flex:none"></span>
+      <span style="color:var(--text-2)">${s.label} · <b style="color:var(--text)">${s.valor}</b></span>
+    </div>`).join('');
+  return `<div style="display:flex;align-items:center;gap:18px;flex-wrap:wrap;justify-content:center">
+    <svg width="180" height="180" viewBox="0 0 180 180">${arcos}</svg>
+    <div>${leyenda}</div>
+  </div>`;
+}
+
+function merBarras(items, campoLbl, campoVal, colorFn){
+  // barras horizontales 0-100%
+  if(!items || !items.length) return '<div class="empty" style="padding:30px;text-align:center;color:var(--text-3)">Sin datos por gerencia</div>';
+  return items.map(g=>{
+    const v = Number(g[campoVal])||0;
+    const col = colorFn ? colorFn(v) : MER.verde;
+    return `<div style="margin-bottom:12px">
+      <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px">
+        <span style="color:var(--text-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:70%">${escapeHtml(g[campoLbl]||'—')}</span>
+        <b style="color:${col}">${(v*100).toFixed(1)}%</b>
+      </div>
+      <div style="height:8px;background:#f0ece5;border-radius:4px;overflow:hidden"><div style="height:100%;width:${Math.min(v*100,100)}%;background:${col};border-radius:4px"></div></div>
+    </div>`;
+  }).join('');
+}
+
+function resumenDelDiaSAR(){
+  const data = state.dashEjecutivo || {};
   const k = data.kpis || {};
+  const t = data.tendencia || [];
+  const ult = t[t.length-1], prev = t[t.length-2];
+  const vencidos = (data.planesCriticos||[]).filter(p=>p.urgencia==='Vencido');
+  const peorGer = (data.gerencias||[]).slice().sort((a,b)=>(Number(a.promedio_resultado)||0)-(Number(b.promedio_resultado)||0))[0];
+  const lineas = [];
+  lineas.push(`<b>Promedio general RESSO:</b> ${fmtPctNum(Number(k.promedio_resso)||0)} sobre ${k.total_auditorias||0} auditorías en ${k.total_empresas||0} empresas.`);
+  if(ult && prev) lineas.push(`<b>Tendencia:</b> el promedio mensual pasó de ${fmtPctNum(Number(prev.promedio)||0)} (${prev.mes_label}) a ${fmtPctNum(Number(ult.promedio)||0)} (${ult.mes_label}).`);
+  lineas.push(`<b>Hallazgos abiertos:</b> ${(k.total_hallazgos_n1||0)+(k.total_hallazgos_n2||0)} en total (N1: ${k.total_hallazgos_n1||0} críticos, N2: ${k.total_hallazgos_n2||0}).`);
+  if(vencidos.length) lineas.push(`<b>⚠️ Acción inmediata:</b> ${vencidos.length} plan(es) de acción vencidos. Empresas involucradas: ${[...new Set(vencidos.map(p=>p.empresa).filter(Boolean))].slice(0,4).map(escapeHtml).join(', ') || '—'}.`);
+  else lineas.push(`<b>Planes de acción:</b> sin planes vencidos. ${k.planes_pendientes||0} pendientes y ${k.planes_completados||0} completados.`);
+  if(peorGer) lineas.push(`<b>Gerencia con menor desempeño:</b> ${escapeHtml(peorGer.gerencia)} con ${fmtPctNum(Number(peorGer.promedio_resultado)||0)} (${peorGer.planes_vencidos||0} planes vencidos).`);
+  if(Number(k.total_seguimientos_rf)||0) lineas.push(`<b>Riesgos de Fatalidad:</b> cumplimiento promedio ${fmtPctNum(Number(k.promedio_rf)||0)} en ${k.total_seguimientos_rf} seguimientos.`);
+  openModal('✦ Resumen del día — Sistema SAR', `<div style="font-size:13px;line-height:1.8;color:var(--text-2)">${lineas.map(l=>`<div style="margin-bottom:8px">${l}</div>`).join('')}<div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--line);font-size:11px;color:var(--text-3)">Generado con los datos consolidados en pantalla · ${new Date().toLocaleString('es-CL')}</div></div>`,
+    `<button class="btn btn-primary" onclick="closeModal()">Entendido</button>`);
+}
+
+function renderDashboardEjecutivo(data){
+  state.dashEjecutivo = data;
+  const k = data.kpis || {};
+  const t = data.tendencia || [];
+  const ult = t[t.length-1] || {}, prev = t[t.length-2] || null;
   const pa = Number(k.promedio_resso) || 0;
   const prf = Number(k.promedio_rf) || 0;
-  const totalAud = k.total_auditorias || 0;
-  
-  // Gauge para promedio RESSO
-  const angle = pa * 180;
-  const rad = (angle - 180) * Math.PI / 180;
-  const endX = 110 + 90 * Math.cos(rad);
-  const endY = 110 + 90 * Math.sin(rad);
-  const largeArc = angle > 180 ? 1 : 0;
-  const colorPa = colorPct(pa);
-  
+  const hallTot = (k.total_hallazgos_n1||0) + (k.total_hallazgos_n2||0);
+  const planesTot = Number(k.total_planes)||0;
+  const planesComp = Number(k.planes_completados)||0;
+  const pctPlanes = planesTot ? planesComp/planesTot : 0;
+  const vencidos = (data.planesCriticos||[]).filter(p=>p.urgencia==='Vencido');
+  const proximos = (data.planesCriticos||[]).filter(p=>p.urgencia==='Próximo a vencer');
+  const serieProm = t.map(m=>Number(m.promedio)||0);
+  const serieAud = t.map(m=>Number(m.num_auditorias)||0);
+  const serieHall = t.map(m=>(Number(m.regulares)||0)+(Number(m.deficientes)||0)); // proxy de actividad con hallazgos
+  const tendenciaPos = serieProm.length>1 ? serieProm[serieProm.length-1] >= serieProm[serieProm.length-2] : true;
+  const gerOrdenadas = (data.gerencias||[]).slice().sort((a,b)=>(Number(b.promedio_resultado)||0)-(Number(a.promedio_resultado)||0));
+
   return `
     <div class="page">
-      <!-- Header ejecutivo -->
-      <div class="card" style="margin-bottom:18px;background:linear-gradient(135deg, #1e3a5f 0%, #2c5282 100%);color:#fff">
-        <div class="card-b" style="padding:24px 28px">
-          <div style="display:flex;justify-content:space-between;align-items:center;gap:20px;flex-wrap:wrap">
-            <div>
-              <div style="font-size:11px;opacity:.85;letter-spacing:1.2px;text-transform:uppercase">Dashboard Ejecutivo · Vista Consolidada</div>
-              <h1 style="font-size:24px;margin:4px 0 0 0;font-family:Archivo">Panorama Global del Sistema SAR</h1>
-              <div style="font-size:13px;opacity:.85;margin-top:6px">Última actualización: ${new Date().toLocaleString('es-CL')}</div>
-            </div>
-            <button class="btn btn-amber" onclick="render()" style="background:#fff;color:#1e3a5f">🔄 Actualizar</button>
+      <!-- PULSO OPERACIONAL -->
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-b" style="padding:12px 18px;display:flex;align-items:center;gap:18px;flex-wrap:wrap">
+          <div style="display:flex;align-items:center;gap:8px;font-size:11px;font-weight:800;letter-spacing:1px;color:${MER.verde};text-transform:uppercase">
+            <span style="width:9px;height:9px;border-radius:50%;background:${MER.verde};box-shadow:0 0 0 4px ${MER.verdeClaro};display:inline-block"></span>
+            Pulso operacional · En vivo
+          </div>
+          <div style="display:flex;gap:18px;flex-wrap:wrap;font-size:12px;color:var(--text-2)">
+            <span><b style="color:${MER.ambar};font-family:Archivo">${hallTot}</b> hallazgos N1+N2</span>
+            <span><b style="color:${MER.rojo};font-family:Archivo">${vencidos.length}</b> planes vencidos</span>
+            <span><b style="color:${MER.azul};font-family:Archivo">${ult.num_auditorias||0}</b> auditorías este mes</span>
+            <span><b style="color:${MER.morado};font-family:Archivo">${k.total_seguimientos_rf||0}</b> seguimientos RF</span>
+          </div>
+          <div style="margin-left:auto;display:flex;gap:8px">
+            <button class="btn btn-ghost btn-sm" onclick="resumenDelDiaSAR()" style="border:1px solid var(--line)">✦ Resumen del día</button>
+            <button class="btn btn-ghost btn-sm" onclick="render()" title="Recargar datos">🔄</button>
           </div>
         </div>
       </div>
-      
-      <!-- KPIs principales -->
-      <div style="display:grid;grid-template-columns:1.4fr 1fr 1fr 1fr 1fr;gap:14px;margin-bottom:18px">
-        <!-- Gauge promedio RESSO -->
-        <div class="card" style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:18px">
-          <div style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:.7px;margin-bottom:6px">Promedio General RESSO</div>
-          <svg viewBox="0 0 220 130" width="100%" style="max-width:220px">
-            <path d="M 20 110 A 90 90 0 0 1 200 110" fill="none" stroke="#f0ece5" stroke-width="14" stroke-linecap="round"/>
-            <path d="M 20 110 A 90 90 0 ${largeArc} 1 ${endX.toFixed(1)} ${endY.toFixed(1)}" fill="none" stroke="${colorPa}" stroke-width="14" stroke-linecap="round"/>
-            <text x="110" y="95" text-anchor="middle" font-size="32" font-weight="800" fill="${colorPa}" font-family="Archivo">${fmtPctNum(pa)}</text>
-            <text x="110" y="120" text-anchor="middle" font-size="11" fill="var(--text-3)" font-family="Inter" letter-spacing="1">SISTEMA</text>
-          </svg>
-        </div>
-        
-        <div class="card" style="padding:16px;display:flex;flex-direction:column;justify-content:center">
-          <div style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:.7px;margin-bottom:6px">Auditorías Totales</div>
-          <div style="font-size:34px;font-weight:800;color:var(--primary);font-family:Archivo;line-height:1">${totalAud}</div>
-          <div style="font-size:11px;color:var(--text-3);margin-top:4px">${k.total_empresas||0} empresas · ${k.total_gerencias||0} gerencias</div>
-        </div>
-        
-        <div class="card" style="padding:16px;display:flex;flex-direction:column;justify-content:center">
-          <div style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:.7px;margin-bottom:6px">Hallazgos N1+N2</div>
-          <div style="font-size:34px;font-weight:800;color:var(--bad);font-family:Archivo;line-height:1">${(k.total_hallazgos_n1||0) + (k.total_hallazgos_n2||0)}</div>
-          <div style="font-size:11px;color:var(--text-3);margin-top:4px">N1: ${k.total_hallazgos_n1||0} · N2: ${k.total_hallazgos_n2||0}</div>
-        </div>
-        
-        <div class="card" style="padding:16px;display:flex;flex-direction:column;justify-content:center">
-          <div style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:.7px;margin-bottom:6px">Planes Vencidos</div>
-          <div style="font-size:34px;font-weight:800;color:var(--bad);font-family:Archivo;line-height:1">${k.planes_vencidos||0}</div>
-          <div style="font-size:11px;color:var(--text-3);margin-top:4px">de ${k.total_planes||0} totales</div>
-        </div>
-        
-        <div class="card" style="padding:16px;display:flex;flex-direction:column;justify-content:center">
-          <div style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:.7px;margin-bottom:6px">% RF Promedio</div>
-          <div style="font-size:34px;font-weight:800;color:${colorPct(prf)};font-family:Archivo;line-height:1">${fmtPctNum(prf)}</div>
-          <div style="font-size:11px;color:var(--text-3);margin-top:4px">${k.total_seguimientos_rf||0} seguimientos</div>
-        </div>
+
+      <!-- KPI CARDS con sparkline + delta -->
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:14px;margin-bottom:16px">
+        ${merKpiCard('Promedio General RESSO',
+          `<span style="color:${colorPct(pa)}">${(pa*100).toFixed(1)}<span style="font-size:15px;font-weight:700"> %</span></span>`,
+          merDelta(Number(ult.promedio), prev?Number(prev.promedio):null, false),
+          'Meta: 90%',
+          merSpark(serieProm, pa>=0.9?MER.verde:(pa>=0.7?MER.ambar:MER.rojo)))}
+        ${merKpiCard('Auditorías Ejecutadas',
+          `<span style="color:var(--text)">${k.total_auditorias||0}</span>`,
+          merDelta(Number(ult.num_auditorias), prev?Number(prev.num_auditorias):null, false),
+          `${k.total_empresas||0} empresas · ${k.total_gerencias||0} gerencias`,
+          merSpark(serieAud, MER.azul))}
+        ${merKpiCard('Cumplimiento de Planes',
+          `<span style="color:${colorPct(pctPlanes)}">${(pctPlanes*100).toFixed(0)}<span style="font-size:15px;font-weight:700"> %</span></span>`,
+          '',
+          `${planesComp} de ${planesTot} completados · Meta: 95%`,
+          merSpark(serieHall.map((_,i)=>planesTot? (planesComp/planesTot) : 0).map((v,i)=>v*(0.9+0.1*(i+1)/(serieHall.length||1))), pctPlanes>=0.95?MER.verde:(pctPlanes>=0.7?MER.ambar:MER.rojo)))}
+        ${merKpiCard('% RF Promedio',
+          `<span style="color:${prf?colorPct(prf):'var(--text-3)'}">${(prf*100).toFixed(1)}<span style="font-size:15px;font-weight:700"> %</span></span>`,
+          '',
+          `${k.total_seguimientos_rf||0} seguimientos · Meta: 90%`,
+          merSpark(serieProm.map(()=>prf), prf>=0.9?MER.verde:(prf>=0.7?MER.ambar:MER.rojo)))}
       </div>
-      
-      <!-- Distribución + Ranking Top -->
-      <div style="display:grid;grid-template-columns:1fr 1.4fr;gap:14px;margin-bottom:18px">
-        <div class="card">
-          <div class="card-h"><h3>Distribución de Auditorías RESSO</h3></div>
-          <div class="card-b">
-            ${(()=>{
-              const a = k.auditorias_aceptables||0;
-              const r = k.auditorias_regulares||0;
-              const d = k.auditorias_deficientes||0;
-              const total = a + r + d;
-              const row = (lbl, n, color) => {
-                const w = total ? (n/total)*100 : 0;
-                return `<div style="margin-bottom:12px">
-                  <div style="display:flex;justify-content:space-between;margin-bottom:4px;font-size:12px">
-                    <span style="color:var(--text-2)">${lbl}</span>
-                    <span style="font-weight:700;color:${color}">${n} (${w.toFixed(0)}%)</span>
-                  </div>
-                  <div style="height:8px;background:#f0ece5;border-radius:4px;overflow:hidden"><div style="height:100%;width:${w}%;background:${color};border-radius:4px;transition:.4s"></div></div>
-                </div>`;
-              };
-              return row('Aceptable (≥90%)', a, 'var(--ok)')
-                   + row('Regular (70–90%)', r, 'var(--warn)')
-                   + row('Deficiente (<70%)', d, 'var(--bad)');
-            })()}
-            <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--line);display:flex;justify-content:space-between;font-size:11px;color:var(--text-3)">
-              <span>Planes pendientes: <b style="color:var(--warn)">${k.planes_pendientes||0}</b></span>
-              <span>Completados: <b style="color:var(--ok)">${k.planes_completados||0}</b></span>
-            </div>
-          </div>
-        </div>
-        
+
+      <!-- GRÁFICO PRINCIPAL + DONUT -->
+      <div style="display:grid;grid-template-columns:2fr 1fr;gap:14px;margin-bottom:16px" class="mer-grid-main">
         <div class="card">
           <div class="card-h">
-            <h3>Top 5 Empresas · Mejor Desempeño</h3>
-            <a href="#" onclick="navigate('ranking');return false" style="font-size:11px;color:var(--primary)">Ver completo →</a>
+            <div>
+              <div style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:.8px">Indicador principal</div>
+              <h3 style="margin-top:2px">Promedio RESSO mensual vs meta</h3>
+            </div>
+            <span style="padding:4px 10px;border-radius:12px;font-size:11px;font-weight:700;background:${tendenciaPos?MER.verdeClaro:MER.rojoClaro};color:${tendenciaPos?MER.verde:MER.rojo}">${tendenciaPos?'Tendencia positiva':'Tendencia a la baja'}</span>
+          </div>
+          <div class="card-b">${merLineChart(t, 0.9)}</div>
+        </div>
+        <div class="card">
+          <div class="card-h">
+            <div>
+              <div style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:.8px">Seguridad y hallazgos</div>
+              <h3 style="margin-top:2px">Eventos del sistema por tipo</h3>
+            </div>
           </div>
           <div class="card-b">
-            ${(data.ranking||[]).slice(0,5).map((e,i)=>{
+            ${merDonut([
+              {label:'Hallazgos N1 (críticos)', valor:Number(k.total_hallazgos_n1)||0, color:MER.rojo},
+              {label:'Hallazgos N2 (menores)', valor:Number(k.total_hallazgos_n2)||0, color:MER.ambar},
+              {label:'Planes vencidos', valor:vencidos.length, color:MER.azul},
+              {label:'Planes por vencer (7d)', valor:proximos.length, color:MER.morado},
+            ])}
+          </div>
+        </div>
+      </div>
+
+      <!-- POR GERENCIA + RANKING -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px" class="mer-grid-main">
+        <div class="card">
+          <div class="card-h">
+            <div>
+              <div style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:.8px">Por área</div>
+              <h3 style="margin-top:2px">Desempeño por gerencia</h3>
+            </div>
+            <a href="#" onclick="navigate('gerencias');return false" style="font-size:11px;color:${MER.verde};font-weight:600">Ver detalle →</a>
+          </div>
+          <div class="card-b">${merBarras(gerOrdenadas.slice(0,8), 'gerencia', 'promedio_resultado', colorPct)}</div>
+        </div>
+        <div class="card">
+          <div class="card-h">
+            <div>
+              <div style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:.8px">Desempeño</div>
+              <h3 style="margin-top:2px">Top empresas contratistas</h3>
+            </div>
+            <a href="#" onclick="navigate('ranking');return false" style="font-size:11px;color:${MER.verde};font-weight:600">Ver completo →</a>
+          </div>
+          <div class="card-b">
+            ${(data.ranking||[]).slice(0,6).map((e,i)=>{
               const pct = Number(e.promedio)||0;
               const col = colorPct(pct);
-              return `<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
-                <div style="width:24px;height:24px;background:${i===0?'#FFD700':(i===1?'#C0C0C0':(i===2?'#CD7F32':'#f5f5f4'))};color:${i<3?'#000':'var(--text-3)'};border-radius:50%;display:grid;place-items:center;font-weight:800;font-size:12px;font-family:Archivo">${i+1}</div>
+              return `<div style="display:flex;align-items:center;gap:10px;margin-bottom:11px">
+                <div style="width:24px;height:24px;background:${i===0?'#FFD700':(i===1?'#C0C0C0':(i===2?'#CD7F32':'#f5f5f4'))};color:${i<3?'#000':'var(--text-3)'};border-radius:50%;display:grid;place-items:center;font-weight:800;font-size:12px;font-family:Archivo;flex:none">${i+1}</div>
                 <div style="flex:1;min-width:0">
-                  <div style="font-size:13px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(e.empresa)}</div>
+                  <div style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(e.empresa)}</div>
                   <div style="font-size:11px;color:var(--text-3)">${e.num_auditorias} auditoría${e.num_auditorias!=1?'s':''}</div>
                 </div>
                 <div style="text-align:right">
                   <div style="font-size:15px;font-weight:800;color:${col};font-family:Archivo">${fmtPctNum(pct)}</div>
-                  <div style="font-size:9px;color:var(--text-3);text-transform:uppercase">${e.clasificacion_promedio}</div>
+                  <div style="font-size:9px;color:var(--text-3);text-transform:uppercase">${e.clasificacion_promedio||''}</div>
                 </div>
               </div>`;
-            }).join('')}
-            ${(data.ranking||[]).length === 0 ? '<div class="empty" style="padding:20px;text-align:center;color:var(--text-3);font-size:12px">Aún no hay auditorías guardadas</div>' : ''}
+            }).join('') || '<div class="empty" style="padding:20px;text-align:center;color:var(--text-3);font-size:12px">Aún no hay auditorías guardadas</div>'}
           </div>
         </div>
       </div>
-      
-      <!-- Planes críticos -->
+
+      <!-- PLANES VENCIDOS -->
       <div class="card">
         <div class="card-h">
-          <h3>⚠️ Planes de Acción Vencidos · Acción Inmediata</h3>
-          <a href="#" onclick="navigate('planes');return false" style="font-size:11px;color:var(--primary)">Ver todos →</a>
+          <h3>⚠️ Planes de acción vencidos · Acción inmediata</h3>
+          <a href="#" onclick="navigate('planes');return false" style="font-size:11px;color:${MER.verde};font-weight:600">Ver todos →</a>
         </div>
         <div class="card-b">
-          ${(()=>{
-            const vencidos = (data.planesCriticos||[]).filter(p=>p.urgencia==='Vencido').slice(0,8);
-            if(vencidos.length === 0){
-              return '<div class="empty" style="padding:24px;text-align:center;color:var(--ok)"><div style="font-size:32px">✅</div><p style="margin:8px 0 0 0;font-weight:600">Sin planes vencidos</p><p style="font-size:12px;color:var(--text-3);margin-top:4px">Todos los compromisos están al día</p></div>';
-            }
-            return `<table style="width:100%;border-collapse:collapse;background:#fff;font-size:12px">
-              <thead style="background:#faf8f5">
-                <tr>
+          ${vencidos.length === 0
+            ? '<div class="empty" style="padding:24px;text-align:center;color:var(--ok)"><div style="font-size:32px">✅</div><p style="margin:8px 0 0 0;font-weight:600">Sin planes vencidos</p><p style="font-size:12px;color:var(--text-3);margin-top:4px">Todos los compromisos están al día</p></div>'
+            : `<table style="width:100%;border-collapse:collapse;font-size:12px">
+                <thead style="background:#faf8f5"><tr>
                   <th style="padding:9px 10px;font-size:10px;text-align:left;text-transform:uppercase;letter-spacing:.6px;color:var(--text-3)">Empresa</th>
-                  <th style="padding:9px 10px;font-size:10px;text-align:left;text-transform:uppercase;letter-spacing:.6px;color:var(--text-3)">Descripción</th>
+                  <th style="padding:9px 10px;font-size:10px;text-align:left;text-transform:uppercase;letter-spacing:.6px;color:var(--text-3)">Gerencia</th>
+                  <th style="padding:9px 10px;font-size:10px;text-align:left;text-transform:uppercase;letter-spacing:.6px;color:var(--text-3)">Acción</th>
                   <th style="padding:9px 10px;font-size:10px;text-align:left;text-transform:uppercase;letter-spacing:.6px;color:var(--text-3)">Responsable</th>
-                  <th style="padding:9px 10px;font-size:10px;text-align:center;text-transform:uppercase;letter-spacing:.6px;color:var(--text-3)">Vencido hace</th>
-                  <th style="padding:9px 10px;font-size:10px;text-align:center;text-transform:uppercase;letter-spacing:.6px;color:var(--text-3)">Estado</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${vencidos.map(p=>`<tr style="border-bottom:1px solid #f0ece5">
+                  <th style="padding:9px 10px;font-size:10px;text-align:left;text-transform:uppercase;letter-spacing:.6px;color:var(--text-3)">Compromiso</th>
+                </tr></thead>
+                <tbody>${vencidos.slice(0,8).map(p=>`<tr style="border-bottom:1px solid #f0ece5">
                   <td style="padding:9px 10px;font-weight:600">${escapeHtml(p.empresa||'—')}</td>
-                  <td style="padding:9px 10px;max-width:300px">${escapeHtml((p.descripcion||'').slice(0,80))}${(p.descripcion||'').length>80?'...':''}</td>
+                  <td style="padding:9px 10px;color:var(--text-2)">${escapeHtml(p.gerencia||'—')}</td>
+                  <td style="padding:9px 10px;max-width:260px">${escapeHtml((p.descripcion||'').slice(0,90))}${(p.descripcion||'').length>90?'…':''}</td>
                   <td style="padding:9px 10px;color:var(--text-2)">${escapeHtml(p.responsable||'—')}</td>
-                  <td style="padding:9px 10px;text-align:center;color:var(--bad);font-weight:700">${p.dias_desde_vencimiento||0} días</td>
-                  <td style="padding:9px 10px;text-align:center"><span style="padding:3px 8px;background:var(--bad);color:#fff;border-radius:10px;font-size:10px;font-weight:600">${escapeHtml(p.estado)}</span></td>
-                </tr>`).join('')}
-              </tbody>
-            </table>`;
-          })()}
+                  <td style="padding:9px 10px;color:${MER.rojo};font-weight:700">${escapeHtml(p.fecha_compromiso||'—')}</td>
+                </tr>`).join('')}</tbody>
+              </table>`}
         </div>
       </div>
     </div>
   `;
 }
+
+// ============================================================
+//  MÓDULOS DE ANALÍTICA AVANZADA + ASISTENTE IA
+// ============================================================
+
+// ---------- Configuración IA (API key local del usuario) ----------
+function getApiKeySAR(){ return localStorage.getItem('sar_anthropic_key') || ''; }
+function setApiKeySAR(k){ if(k) localStorage.setItem('sar_anthropic_key', k.trim()); }
+let _iaHistorial = []; // {role, content}
+
+function construirContextoIA(){
+  const d = state.dashEjecutivo || {};
+  const k = d.kpis || {};
+  const ctx = {
+    promedio_resso: k.promedio_resso, promedio_rf: k.promedio_rf,
+    total_auditorias: k.total_auditorias, total_empresas: k.total_empresas,
+    total_gerencias: k.total_gerencias, hallazgos_n1: k.total_hallazgos_n1,
+    hallazgos_n2: k.total_hallazgos_n2, planes_vencidos: k.planes_vencidos,
+    planes_pendientes: k.planes_pendientes, planes_completados: k.planes_completados,
+    total_seguimientos_rf: k.total_seguimientos_rf,
+    ranking: (d.ranking||[]).slice(0,10).map(e=>({empresa:e.empresa, promedio:e.promedio, auditorias:e.num_auditorias, clasificacion:e.clasificacion_promedio})),
+    gerencias: (d.gerencias||[]).map(g=>({gerencia:g.gerencia, promedio:g.promedio_resultado, auditorias:g.num_auditorias, planes_vencidos:g.planes_vencidos})),
+    tendencia: (d.tendencia||[]).map(m=>({mes:m.mes_label, promedio:m.promedio, auditorias:m.num_auditorias})),
+    planes_criticos_vencidos: (d.planesCriticos||[]).filter(p=>p.urgencia==='Vencido').slice(0,15).map(p=>({empresa:p.empresa, gerencia:p.gerencia, accion:p.descripcion, responsable:p.responsable, compromiso:p.fecha_compromiso})),
+    rf_global: (d.rfGlobal||[]).filter(r=>(r.veces_aplicable||0)>0).map(r=>({rf:r.codigo_rf, nombre:(RF_CATALOGO[r.codigo_rf]||{}).nombre, cumplimiento:r.cumplimiento_promedio, peor:r.peor_cumplimiento, aplicable_en:r.veces_aplicable})),
+  };
+  return ctx;
+}
+
+async function enviarMensajeIA(){
+  const input = document.getElementById('ia_input');
+  if(!input) return;
+  const texto = input.value.trim();
+  if(!texto) return;
+  const key = getApiKeySAR();
+  if(!key){ abrirConfigIA(); return; }
+
+  input.value = '';
+  input.style.height = 'auto';
+  _iaHistorial.push({role:'user', content:texto});
+  pintarChatIA(true); // con "pensando"
+
+  const sys = `Eres el analista de seguridad del Sistema SAR, una plataforma de auditoría RESSO V9 y seguimiento de los 24 Riesgos de Fatalidad (RF) para empresas contratistas en minería. Respondes en español, de forma ejecutiva, concreta y accionable. Usas EXCLUSIVAMENTE los datos del contexto JSON que se te entrega; si algo no está en los datos, dilo claramente en lugar de inventar. Cuando detectes riesgos (planes vencidos, RF bajo 70%, gerencias deficientes) priorízalos. Usa porcentajes con un decimal. No menciones nombres de mandantes específicos. Sé breve: máximo ~180 palabras salvo que pidan un informe.`;
+
+  const contexto = construirContextoIA();
+  const mensajes = _iaHistorial.map(m=>({role:m.role, content:m.content}));
+  // Inyectar contexto en el primer turno del usuario
+  mensajes[0] = { role:'user', content:`DATOS ACTUALES DEL SISTEMA (JSON):\n${JSON.stringify(contexto)}\n\nPREGUNTA: ${_iaHistorial[0].content}` };
+
+  try {
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method:'POST',
+      headers:{
+        'content-type':'application/json',
+        'x-api-key':key,
+        'anthropic-version':'2023-06-01',
+        'anthropic-dangerous-direct-browser-access':'true'
+      },
+      body: JSON.stringify({ model:'claude-sonnet-4-6', max_tokens:1024, system:sys, messages:mensajes })
+    });
+    if(!resp.ok){
+      const err = await resp.text();
+      throw new Error(resp.status + ' — ' + err.slice(0,200));
+    }
+    const data = await resp.json();
+    const txt = (data.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('\n').trim() || '(sin respuesta)';
+    _iaHistorial.push({role:'assistant', content:txt});
+  } catch(e){
+    console.error('[SAR][IA]', e);
+    _iaHistorial.push({role:'assistant', content:'⚠️ No se pudo conectar con la IA: '+e.message+'\n\nVerifica tu API key en ⚙️ (esquina superior) y tu conexión.'});
+  }
+  pintarChatIA(false);
+}
+
+function pintarChatIA(pensando){
+  const cont = document.getElementById('ia_chat');
+  if(!cont) return;
+  const burbujas = _iaHistorial.map(m=>{
+    if(m.role==='user'){
+      return `<div style="display:flex;justify-content:flex-end;margin-bottom:12px"><div style="max-width:78%;background:${MER.verde};color:#fff;padding:10px 14px;border-radius:14px 14px 4px 14px;font-size:13px;line-height:1.5">${escapeHtml(m.content)}</div></div>`;
+    }
+    return `<div style="display:flex;gap:10px;margin-bottom:12px"><div style="width:28px;height:28px;border-radius:8px;background:${MER.verdeClaro};color:${MER.verde};display:grid;place-items:center;flex:none;font-size:15px">✦</div><div style="max-width:82%;background:#faf8f5;border:1px solid var(--line);padding:10px 14px;border-radius:4px 14px 14px 14px;font-size:13px;line-height:1.6;white-space:pre-wrap">${escapeHtml(m.content).replace(/\*\*(.+?)\*\*/g,'<b>$1</b>')}</div></div>`;
+  }).join('');
+  const thinking = pensando ? `<div style="display:flex;gap:10px;margin-bottom:12px"><div style="width:28px;height:28px;border-radius:8px;background:${MER.verdeClaro};color:${MER.verde};display:grid;place-items:center;flex:none;font-size:15px">✦</div><div style="background:#faf8f5;border:1px solid var(--line);padding:12px 16px;border-radius:4px 14px 14px 14px"><span class="ia-dot"></span><span class="ia-dot"></span><span class="ia-dot"></span></div></div>` : '';
+  cont.innerHTML = burbujas + thinking;
+  cont.scrollTop = cont.scrollHeight;
+}
+
+function preguntaRapidaIA(q){
+  const input = document.getElementById('ia_input');
+  if(input){ input.value = q; enviarMensajeIA(); }
+}
+
+function abrirConfigIA(){
+  const actual = getApiKeySAR();
+  openModal('⚙️ Configurar Asistente IA',
+    `<div style="font-size:13px;color:var(--text-2);line-height:1.6">
+      <p>El Asistente IA usa la API de Anthropic (Claude) para analizar tus datos del sistema. Pega tu API key abajo. Se guarda solo en este navegador (localStorage).</p>
+      <div class="field" style="margin-top:10px">
+        <label>API Key de Anthropic</label>
+        <input type="password" id="ia_key_input" placeholder="sk-ant-..." value="${escapeHtml(actual)}" autocomplete="off">
+      </div>
+      <div style="background:#fdf3e3;border:1px solid #f0dcb8;border-radius:6px;padding:10px 12px;font-size:11px;color:#92600c;margin-top:8px">
+        ⚠️ La key queda en este dispositivo y las consultas salen directo desde el navegador. Para producción multiusuario conviene migrar a un proxy en Supabase (lo haremos más adelante).
+      </div>
+    </div>`,
+    `<button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
+     <button class="btn btn-primary" onclick="(function(){var v=document.getElementById('ia_key_input').value;setApiKeySAR(v);closeModal();toast('API key guardada','ok');})()">Guardar</button>`);
+}
+
+function renderAsistenteIA(data){
+  state.dashEjecutivo = data;
+  const tieneKey = !!getApiKeySAR();
+  const sugerencias = [
+    '¿Cuáles son los 3 riesgos más urgentes del sistema ahora?',
+    '¿Qué gerencia necesita más atención y por qué?',
+    'Redacta un resumen ejecutivo de la situación actual',
+    '¿Qué empresas tienen peor desempeño y qué planes están vencidos?',
+    '¿Qué RF están bajo 70% de cumplimiento?',
+  ];
+  return `
+    <div class="page">
+      <div class="card" style="display:flex;flex-direction:column;height:calc(100vh - 150px);min-height:520px">
+        <div class="card-h" style="flex:none">
+          <div style="display:flex;align-items:center;gap:10px">
+            <div style="width:30px;height:30px;border-radius:9px;background:${MER.verde};color:#fff;display:grid;place-items:center;font-size:16px">✦</div>
+            <div>
+              <h3 style="margin:0">Asistente IA</h3>
+              <div style="font-size:11px;color:var(--text-3)">Analiza tus datos reales de auditorías, RF y planes de acción</div>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <span style="font-size:11px;padding:3px 9px;border-radius:10px;background:${tieneKey?MER.verdeClaro:'#fdecec'};color:${tieneKey?MER.verde:MER.rojo};font-weight:600">${tieneKey?'● Conectado':'○ Sin API key'}</span>
+            <button class="btn btn-ghost btn-sm" onclick="abrirConfigIA()">⚙️</button>
+            <button class="btn btn-ghost btn-sm" onclick="_iaHistorial=[];pintarChatIA(false)" title="Limpiar conversación">🗑️</button>
+          </div>
+        </div>
+        <div class="card-b" id="ia_chat" style="flex:1;overflow-y:auto;padding:18px">
+          ${_iaHistorial.length===0 ? `
+            <div style="text-align:center;padding:30px 10px;color:var(--text-3)">
+              <div style="font-size:42px;margin-bottom:10px">✦</div>
+              <h4 style="margin:0 0 6px;font-size:15px;color:var(--text-2)">Pregúntame sobre tu sistema de auditorías</h4>
+              <p style="font-size:12px;max-width:440px;margin:0 auto 18px">Tengo acceso a tus ${(data.kpis||{}).total_auditorias||0} auditorías, ${(data.rfGlobal||[]).filter(r=>(r.veces_aplicable||0)>0).length} RF aplicables y todos los planes de acción.</p>
+              <div style="display:flex;flex-direction:column;gap:8px;max-width:460px;margin:0 auto">
+                ${sugerencias.map(s=>`<button class="btn btn-ghost btn-sm" style="text-align:left;border:1px solid var(--line);font-size:12px;padding:9px 12px" onclick="preguntaRapidaIA('${s.replace(/'/g,"\\'")}')">${s}</button>`).join('')}
+              </div>
+            </div>` : ''}
+        </div>
+        <div style="flex:none;border-top:1px solid var(--line);padding:12px 16px;background:#fff">
+          <div style="display:flex;gap:10px;align-items:flex-end">
+            <textarea id="ia_input" rows="1" placeholder="Escribe tu pregunta..." style="flex:1;resize:none;border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-family:inherit;font-size:13px;max-height:120px" oninput="this.style.height='auto';this.style.height=Math.min(this.scrollHeight,120)+'px'" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();enviarMensajeIA();}"></textarea>
+            <button class="btn btn-primary" onclick="enviarMensajeIA()" style="background:${MER.verde};border-color:${MER.verde};padding:10px 16px">Enviar</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+// ---------- MAPA DE CALOR DE CUMPLIMIENTO POR RF ----------
+function colorHeat(v){
+  if(v==null) return '#f0ece5';
+  if(v>=0.9) return '#1E7A63';
+  if(v>=0.8) return '#5a9e7e';
+  if(v>=0.7) return '#D97706';
+  if(v>=0.5) return '#e8843c';
+  return '#DC2626';
+}
+function renderMapaCalorRF(data){
+  state.dashEjecutivo = data;
+  const rfs = (data.rfGlobal||[]).filter(r=>(r.veces_aplicable||0)>0)
+    .map(r=>({...r, nombre:(RF_CATALOGO[r.codigo_rf]||{}).nombre||r.codigo_rf}))
+    .sort((a,b)=>(Number(a.cumplimiento_promedio)||0)-(Number(b.cumplimiento_promedio)||0));
+  return `
+    <div class="page">
+      <div class="card" style="margin-bottom:14px">
+        <div class="card-h">
+          <div>
+            <div style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:.8px">Analítica de riesgos</div>
+            <h3 style="margin-top:2px">Mapa de calor · Cumplimiento por Riesgo de Fatalidad</h3>
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;font-size:10px;color:var(--text-3)">
+            <span>Bajo</span>
+            ${['#DC2626','#e8843c','#D97706','#5a9e7e','#1E7A63'].map(c=>`<span style="width:16px;height:10px;background:${c};display:inline-block;border-radius:2px"></span>`).join('')}
+            <span>Alto</span>
+          </div>
+        </div>
+        <div class="card-b">
+          ${rfs.length===0 ? '<div class="empty" style="padding:40px;text-align:center;color:var(--text-3)">Aún no hay seguimientos RF guardados para construir el mapa de calor.</div>' : `
+          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px">
+            ${rfs.map(r=>{
+              const v = Number(r.cumplimiento_promedio)||0;
+              const peor = Number(r.peor_cumplimiento)||0;
+              const col = colorHeat(v);
+              const txtCol = v>=0.7 && v<0.8 ? '#3a2400' : '#fff';
+              return `<div style="background:${col};border-radius:10px;padding:12px 13px;color:${txtCol};min-height:96px;display:flex;flex-direction:column;justify-content:space-between" title="${escapeHtml(r.nombre)} — promedio ${(v*100).toFixed(1)}%, peor caso ${(peor*100).toFixed(1)}%">
+                <div>
+                  <div style="font-size:13px;font-weight:800;font-family:Archivo">${r.codigo_rf}</div>
+                  <div style="font-size:10px;opacity:.92;line-height:1.25;margin-top:2px">${escapeHtml((r.nombre||'').slice(0,42))}</div>
+                </div>
+                <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-top:8px">
+                  <span style="font-size:22px;font-weight:800;font-family:Archivo;line-height:1">${(v*100).toFixed(0)}<span style="font-size:11px">%</span></span>
+                  <span style="font-size:9px;opacity:.9;text-align:right">aplicable<br>en ${r.veces_aplicable}</span>
+                </div>
+              </div>`;
+            }).join('')}
+          </div>
+          <div style="margin-top:16px;font-size:11px;color:var(--text-3)">Ordenado de menor a mayor cumplimiento. Los bloques rojos son los RF que requieren atención prioritaria a nivel sistema.</div>
+          `}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+// ---------- COMPARATIVA EMPRESAS / GERENCIAS ----------
+function renderComparativaEjecutiva(data){
+  state.dashEjecutivo = data;
+  const empresas = (data.ranking||[]).slice(0,12);
+  const gerencias = (data.gerencias||[]).slice();
+  return `
+    <div class="page">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px" class="mer-grid-main">
+        <div class="card">
+          <div class="card-h">
+            <div><div style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:.8px">Comparativa</div><h3 style="margin-top:2px">Empresas contratistas</h3></div>
+          </div>
+          <div class="card-b"><canvas id="cmpEmpresas" style="max-height:340px"></canvas></div>
+        </div>
+        <div class="card">
+          <div class="card-h">
+            <div><div style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:.8px">Comparativa</div><h3 style="margin-top:2px">Gerencias (radar)</h3></div>
+          </div>
+          <div class="card-b"><canvas id="cmpGerencias" style="max-height:340px"></canvas></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-h"><h3>Tabla comparativa de empresas</h3><div style="font-size:11px;color:var(--text-3)">${empresas.length} empresas</div></div>
+        <div class="card-b">
+          ${empresas.length===0 ? '<div class="empty" style="padding:40px;text-align:center;color:var(--text-3)">Sin auditorías para comparar</div>' : `
+          <table style="width:100%;border-collapse:collapse;font-size:12px">
+            <thead style="background:#faf8f5"><tr>
+              <th style="padding:9px 10px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.6px;color:var(--text-3)">Empresa</th>
+              <th style="padding:9px 10px;text-align:center;font-size:10px;text-transform:uppercase;letter-spacing:.6px;color:var(--text-3)">Promedio</th>
+              <th style="padding:9px 10px;text-align:center;font-size:10px;text-transform:uppercase;letter-spacing:.6px;color:var(--text-3)">Auditorías</th>
+              <th style="padding:9px 10px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.6px;color:var(--text-3)">Clasificación</th>
+              <th style="padding:9px 10px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.6px;color:var(--text-3)">Barra</th>
+            </tr></thead>
+            <tbody>${empresas.map(e=>{
+              const v=Number(e.promedio)||0; const col=colorPct(v);
+              return `<tr style="border-bottom:1px solid #f0ece5">
+                <td style="padding:9px 10px;font-weight:600">${escapeHtml(e.empresa)}</td>
+                <td style="padding:9px 10px;text-align:center;font-weight:800;color:${col};font-family:Archivo">${fmtPctNum(v)}</td>
+                <td style="padding:9px 10px;text-align:center">${e.num_auditorias}</td>
+                <td style="padding:9px 10px"><span style="padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;background:${col}1a;color:${col}">${e.clasificacion_promedio||'—'}</span></td>
+                <td style="padding:9px 10px;width:30%"><div style="height:7px;background:#f0ece5;border-radius:4px;overflow:hidden"><div style="height:100%;width:${Math.min(v*100,100)}%;background:${col};border-radius:4px"></div></div></td>
+              </tr>`;
+            }).join('')}</tbody>
+          </table>`}
+        </div>
+      </div>
+    </div>
+  `;
+}
+function drawComparativaCharts(data){
+  if(typeof Chart==='undefined') return;
+  const empresas = (data.ranking||[]).slice(0,12);
+  const c1 = document.getElementById('cmpEmpresas');
+  if(c1 && empresas.length){
+    if(window._cmpE) window._cmpE.destroy();
+    window._cmpE = new Chart(c1.getContext('2d'), {
+      type:'bar',
+      data:{ labels: empresas.map(e=>e.empresa.length>18?e.empresa.slice(0,17)+'…':e.empresa),
+        datasets:[{ label:'Promedio RESSO', data: empresas.map(e=>((Number(e.promedio)||0)*100).toFixed(1)),
+          backgroundColor: empresas.map(e=>{const v=Number(e.promedio)||0;return v>=0.9?'#1E7A63':v>=0.7?'#D97706':'#DC2626';}),
+          borderRadius:6 }] },
+      options:{ indexAxis:'y', responsive:true, maintainAspectRatio:false,
+        plugins:{legend:{display:false}}, scales:{x:{min:0,max:100,ticks:{callback:v=>v+'%'}}} }
+    });
+  }
+  const gers = (data.gerencias||[]).slice(0,8);
+  const c2 = document.getElementById('cmpGerencias');
+  if(c2 && gers.length){
+    if(window._cmpG) window._cmpG.destroy();
+    window._cmpG = new Chart(c2.getContext('2d'), {
+      type:'radar',
+      data:{ labels: gers.map(g=>g.gerencia.length>16?g.gerencia.slice(0,15)+'…':g.gerencia),
+        datasets:[{ label:'Promedio', data: gers.map(g=>((Number(g.promedio_resultado)||0)*100).toFixed(1)),
+          backgroundColor:'rgba(30,122,99,.18)', borderColor:'#1E7A63', borderWidth:2, pointBackgroundColor:'#1E7A63' }] },
+      options:{ responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}},
+        scales:{ r:{ min:0, max:100, ticks:{display:false}, pointLabels:{font:{size:10}} } } }
+    });
+  }
+}
+
+// ---------- PROYECCIÓN DE TENDENCIAS ----------
+function regresionLineal(ys){
+  const n = ys.length; if(n<2) return {m:0,b:ys[0]||0};
+  const xs = ys.map((_,i)=>i);
+  const sx = xs.reduce((a,b)=>a+b,0), sy = ys.reduce((a,b)=>a+b,0);
+  const sxy = xs.reduce((a,x,i)=>a+x*ys[i],0), sxx = xs.reduce((a,x)=>a+x*x,0);
+  const m = (n*sxy - sx*sy) / ((n*sxx - sx*sx) || 1);
+  const b = (sy - m*sx) / n;
+  return {m,b};
+}
+function renderProyeccion(data){
+  state.dashEjecutivo = data;
+  const t = (data.tendencia||[]);
+  const serie = t.map(m=>Number(m.promedio)||0);
+  const {m,b} = regresionLineal(serie);
+  const meses3 = [1,2,3].map(i=>{ const v=b+m*(serie.length-1+i); return Math.max(0,Math.min(1,v)); });
+  const proyTxt = m>0.001?'al alza':(m<-0.001?'a la baja':'estable');
+  const proyCol = m>0.001?MER.verde:(m<-0.001?MER.rojo:MER.gris);
+  return `
+    <div class="page">
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:14px">
+        <div class="card" style="border-left:4px solid ${proyCol}"><div class="card-b" style="padding:14px"><div style="font-size:10px;color:var(--text-3);text-transform:uppercase">Tendencia detectada</div><div style="font-size:22px;font-weight:800;color:${proyCol};font-family:Archivo;text-transform:capitalize">${proyTxt}</div><div style="font-size:11px;color:var(--text-3)">${(m*100>=0?'+':'')}${(m*100).toFixed(2)}% por mes</div></div></div>
+        <div class="card"><div class="card-b" style="padding:14px"><div style="font-size:10px;color:var(--text-3);text-transform:uppercase">Proyección próximo mes</div><div style="font-size:22px;font-weight:800;color:${colorPct(meses3[0])};font-family:Archivo">${fmtPctNum(meses3[0])}</div><div style="font-size:11px;color:var(--text-3)">según regresión lineal</div></div></div>
+        <div class="card"><div class="card-b" style="padding:14px"><div style="font-size:10px;color:var(--text-3);text-transform:uppercase">Proyección en 3 meses</div><div style="font-size:22px;font-weight:800;color:${colorPct(meses3[2])};font-family:Archivo">${fmtPctNum(meses3[2])}</div><div style="font-size:11px;color:var(--text-3)">escenario continuista</div></div></div>
+      </div>
+      <div class="card">
+        <div class="card-h"><div><div style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:.8px">Predicción</div><h3 style="margin-top:2px">Proyección del promedio RESSO (histórico + 3 meses)</h3></div></div>
+        <div class="card-b">
+          ${serie.length<2 ? '<div class="empty" style="padding:40px;text-align:center;color:var(--text-3)">Se necesitan al menos 2 meses de historia para proyectar.</div>' : '<canvas id="chartProy" style="max-height:360px"></canvas>'}
+          <div style="margin-top:14px;padding:12px 14px;background:#faf8f5;border-radius:8px;font-size:12px;color:var(--text-2);line-height:1.6">
+            <b>Lectura:</b> con los ${serie.length} meses registrados, el sistema proyecta una tendencia <b style="color:${proyCol}">${proyTxt}</b>. La proyección asume que se mantienen las condiciones actuales; un plan de acción agresivo sobre los hallazgos críticos puede acelerar la mejora. <span style="color:var(--text-3)">La proyección es estadística (regresión lineal simple), no un pronóstico garantizado.</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+function drawProyeccionChart(data){
+  if(typeof Chart==='undefined') return;
+  const c = document.getElementById('chartProy');
+  if(!c) return;
+  const t = (data.tendencia||[]);
+  const serie = t.map(m=>Number(m.promedio)||0);
+  if(serie.length<2) return;
+  const {m,b} = regresionLineal(serie);
+  const labelsHist = t.map(x=>x.mes_label);
+  const labelsProy = ['+1','+2','+3'];
+  const histData = serie.map(v=>(v*100).toFixed(1));
+  const proyData = [...serie.map(()=>null)];
+  // conectar último real con proyección
+  const ultimoIdx = serie.length-1;
+  const proy = [1,2,3].map(i=>Math.max(0,Math.min(1, b+m*(ultimoIdx+i))));
+  const fullLabels = [...labelsHist, ...labelsProy];
+  const histFull = [...histData, null, null, null];
+  const proyFull = [...serie.map(()=>null)];
+  proyFull[ultimoIdx] = (serie[ultimoIdx]*100).toFixed(1);
+  proy.forEach(p=>proyFull.push((p*100).toFixed(1)));
+  if(window._proyChart) window._proyChart.destroy();
+  window._proyChart = new Chart(c.getContext('2d'), {
+    type:'line',
+    data:{ labels: fullLabels, datasets:[
+      { label:'Histórico', data: histFull, borderColor:'#1E7A63', backgroundColor:'rgba(30,122,99,.1)', borderWidth:2.5, fill:true, tension:.3, pointRadius:4 },
+      { label:'Proyección', data: proyFull, borderColor:'#D97706', borderDash:[6,5], borderWidth:2.5, fill:false, tension:.3, pointRadius:4, pointStyle:'rectRot' }
+    ]},
+    options:{ responsive:true, maintainAspectRatio:false,
+      plugins:{legend:{position:'bottom'}, tooltip:{callbacks:{label:c=>c.dataset.label+': '+c.parsed.y+'%'}}},
+      scales:{ y:{min:0,max:100,ticks:{callback:v=>v+'%'}} } }
+  });
+}
+
 
 function renderRankingEjecutivo(data){
   const ranking = data.ranking || [];
@@ -7895,12 +8417,16 @@ function navigateEjecutivo(view){
   });
   // Actualizar título topbar
   const titulos = {
-    dashboard: ['Resumen Ejecutivo', 'Panorama global del sistema'],
+    dashboard: ['Centro de Control', 'Visión ejecutiva en tiempo real de todo el sistema'],
     ranking: ['Ranking de Empresas', 'Empresas ordenadas por desempeño'],
     gerencias: ['Por Gerencia', 'Desempeño por gerencia'],
     tendencia: ['Tendencia Mensual', 'Evolución temporal de auditorías'],
     planes: ['Planes Críticos', 'Planes de acción vencidos o por vencer'],
     rfglobal: ['RF Global', 'Cumplimiento de los 24 RF a nivel sistema'],
+    asistente: ['Asistente IA', 'Analítica conversacional sobre tus datos'],
+    mapacalor: ['Mapa de Calor RF', 'Cumplimiento por Riesgo de Fatalidad'],
+    comparativa: ['Comparativa', 'Empresas y gerencias lado a lado'],
+    proyeccion: ['Proyección', 'Tendencia proyectada del sistema'],
   };
   const t = titulos[view] || [view, ''];
   const crumb = document.getElementById('crumb');

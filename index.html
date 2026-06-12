@@ -5109,11 +5109,24 @@ function editHallazgo(hid){
   if(h) openHallazgoModal(h.nivel, hid);
 }
 function deleteHallazgo(hid){
-  if(!confirm('¿Eliminar este hallazgo?')) return;
+  if(!confirm('¿Eliminar este hallazgo? Si está sincronizado, también se eliminará de la nube junto con sus fotos.')) return;
+  const h = state.auditoria.hallazgos.find(x=>x.id===hid);
   state.auditoria.hallazgos = state.auditoria.hallazgos.filter(x=>x.id!==hid);
   calcular(false);
   render();
   toast('Hallazgo eliminado', 'warn');
+  // Eliminación en nube (no bloquea la UI)
+  if(h && h.supabase_id && modoOnline()){
+    (async () => {
+      try {
+        await sb.from('hallazgo_fotos').delete().eq('hallazgo_id', h.supabase_id);
+        await sb.from('auditoria_hallazgos').delete().eq('id', h.supabase_id);
+      } catch(e){
+        console.error('[SAR] Error eliminando hallazgo en nube:', e);
+        toast('Hallazgo eliminado localmente, pero hubo un error en la nube', 'warn');
+      }
+    })();
+  }
 }
 
 // ---------------- PLAN DE ACCIÓN ----------------
@@ -5552,6 +5565,7 @@ function renderHistorial(){
           <h3>Auditorías guardadas</h3>
           <div style="display:flex;align-items:center;gap:10px">
             <span class="sub">${lista.length} registro(s)</span>
+            <button class="btn btn-ghost btn-sm" onclick="backupCompletoSAR()" title="Descarga un respaldo JSON con todas las auditorías, seguimientos RF y datos locales">⬇️ Respaldo completo</button>
             ${modoOnline() ? `<button class="btn btn-primary btn-sm" onclick="sincronizarHistorialANube()" title="Sube todas las auditorías locales a la nube">☁️ Sincronizar todas a la nube</button>` : ''}
           </div>
         </div>
@@ -5572,6 +5586,7 @@ function renderHistorial(){
                 <span class="pct text-${c.color}">${fmtPct(a.resultados.resFinal)}</span>
                 <span class="clase tag ${c.color}">${a.resultados.clasificacion}</span>
                 <span class="tag" style="background:${enNube?'#e8f5e9':'#fff4e5'};color:${enNube?'#2e7d32':'#e65100'};font-size:10px" title="${enNube?'Sincronizada en la nube':'Solo en este dispositivo'}">${enNube?'☁️ Nube':'💾 Local'}</span>
+                <button class="btn btn-ghost btn-sm" onclick="eliminarAuditoriaHistorial(event,'${a.id}')" title="Eliminar esta auditoría del historial" style="color:var(--bad);padding:4px 9px;font-size:12px">🗑️</button>
               </div>`;
             }).join('')}
           </div>`}
@@ -6671,12 +6686,138 @@ function loadRFFromHistory(id){
   navigateRF('dashboard');
 }
 
+// ============================================================
+//  ITERACIÓN 1 — RESPALDO COMPLETO Y ELIMINACIÓN SEGURA
+// ============================================================
+
+function backupCompletoSAR(){
+  try {
+    const claves = ['resso_current','resso_history','rf_current','rf_history','resso_user','app_modulo'];
+    const data = { _meta: { app:'SAR · Sistema de Auditoría RESSO V9', generado: new Date().toISOString(), version_respaldo: 1 } };
+    claves.forEach(k => {
+      const raw = localStorage.getItem(k);
+      if(raw !== null){
+        try { data[k] = JSON.parse(raw); } catch(e){ data[k] = raw; }
+      }
+    });
+    const blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const fecha = new Date().toISOString().slice(0,10);
+    a.href = url;
+    a.download = `SAR_respaldo_completo_${fecha}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(()=>URL.revokeObjectURL(url), 2000);
+    toast('Respaldo completo descargado', 'ok');
+  } catch(e){
+    console.error('[SAR] Error generando respaldo:', e);
+    toast('Error al generar respaldo: '+e.message, 'bad');
+  }
+}
+
+let _sarDeleteCb = null;
+function confirmarEliminacionSAR(titulo, detalleHTML, onConfirm){
+  _sarDeleteCb = onConfirm;
+  const body = `
+    <div style="padding:4px 2px">
+      <div style="display:flex;gap:12px;align-items:flex-start;margin-bottom:14px">
+        <div style="font-size:28px;line-height:1">🗑️</div>
+        <div style="font-size:13px;color:var(--text-2);line-height:1.5">${detalleHTML}</div>
+      </div>
+      <div style="background:#fdf3f2;border:1px solid #f3d6d3;border-radius:6px;padding:10px 12px;margin-bottom:12px;font-size:12px;color:var(--bad)">
+        Esta acción es <b>permanente</b> y no se puede deshacer. Se recomienda descargar un <b>respaldo completo</b> antes de eliminar.
+      </div>
+      <div class="field">
+        <label>Para confirmar, escribe <b style="letter-spacing:1px">ELIMINAR</b></label>
+        <input type="text" id="sar_del_confirm" autocomplete="off" placeholder="ELIMINAR" oninput="document.getElementById('sar_del_btn').disabled = this.value.trim().toUpperCase() !== 'ELIMINAR'">
+      </div>
+    </div>
+  `;
+  const foot = `
+    <button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
+    <button class="btn btn-ghost btn-sm" onclick="backupCompletoSAR()" title="Descarga un respaldo antes de eliminar">⬇️ Respaldo</button>
+    <button class="btn btn-primary" id="sar_del_btn" disabled style="background:var(--bad);border-color:var(--bad)" onclick="ejecutarEliminacionSAR()">Eliminar definitivamente</button>
+  `;
+  openModal(titulo, body, foot);
+  setTimeout(()=>{ const i=document.getElementById('sar_del_confirm'); if(i) i.focus(); }, 80);
+}
+async function ejecutarEliminacionSAR(){
+  const btn = document.getElementById('sar_del_btn');
+  if(btn){ btn.disabled = true; btn.textContent = 'Eliminando…'; }
+  try {
+    if(typeof _sarDeleteCb === 'function') await _sarDeleteCb();
+  } finally {
+    _sarDeleteCb = null;
+    closeModal();
+  }
+}
+
+async function eliminarAuditoriaHistorial(ev, id){
+  if(ev){ ev.stopPropagation(); ev.preventDefault(); }
+  const a = state.history.find(x => x.id === id);
+  if(!a) return;
+  const nombre = (a.antecedentes && a.antecedentes.nombreEECC) || 'Sin nombre';
+  const contrato = (a.antecedentes && a.antecedentes.numContrato) || '—';
+  const enNube = !!a.supabase_id;
+  const detalle = `Vas a eliminar la auditoría de <b>${escapeHtml(nombre)}</b> (contrato ${escapeHtml(contrato)}), con <b>${(a.hallazgos||[]).length} hallazgo(s)</b> y su plan de acción.${enNube ? '<br>También se eliminará de la <b>nube</b> (Supabase), incluyendo hallazgos, fotos y plan asociados.' : '<br>Esta auditoría existe solo en este dispositivo.'}`;
+  confirmarEliminacionSAR('Eliminar auditoría del historial', detalle, async () => {
+    let nubeOk = true;
+    if(enNube && modoOnline()){
+      try {
+        // Cascada: fotos de hallazgos → hallazgos → plan → auditoría
+        try {
+          const { data: hs } = await sb.from('auditoria_hallazgos').select('id').eq('auditoria_id', a.supabase_id);
+          const hIds = (hs||[]).map(h => h.id);
+          if(hIds.length) await sb.from('hallazgo_fotos').delete().in('hallazgo_id', hIds);
+        } catch(e){ console.warn('[SAR] No se pudieron limpiar fotos:', e); }
+        await sb.from('auditoria_hallazgos').delete().eq('auditoria_id', a.supabase_id);
+        await sb.from('auditoria_plan').delete().eq('auditoria_id', a.supabase_id);
+        nubeOk = await sb_eliminarAuditoria(a.supabase_id);
+      } catch(e){
+        console.error('[SAR] Error en eliminación en nube:', e);
+        nubeOk = false;
+      }
+    }
+    state.history = state.history.filter(x => x.id !== id);
+    saveHistory(state.history);
+    if(enNube && !nubeOk){
+      toast('Eliminada localmente, pero hubo un error al eliminar de la nube', 'warn');
+    } else {
+      toast('Auditoría eliminada' + (enNube ? ' (local y nube)' : ''), 'ok');
+    }
+    render();
+  });
+}
+
 function eliminarRFHistorial(id){
-  if(!confirm('¿Eliminar este seguimiento del historial?')) return;
-  state.historyRF = (state.historyRF || []).filter(s=>s.id !== id);
-  saveHistoryRF();
-  toast('Seguimiento eliminado', 'ok');
-  render();
+  const s = (state.historyRF || []).find(x => x.id === id);
+  if(!s) return;
+  const empresa = (s.antecedentes && s.antecedentes.empresa) || 'Sin nombre';
+  const enNube = !!s.supabase_id;
+  const detalle = `Vas a eliminar el seguimiento RF de <b>${escapeHtml(empresa)}</b> (${escapeHtml((s.antecedentes||{}).fechaAplicacion || 'sin fecha')}).${enNube ? '<br>También se eliminará de la <b>nube</b> (Supabase), incluyendo el estado y los requisitos de cada riesgo.' : '<br>Este seguimiento existe solo en este dispositivo.'}`;
+  confirmarEliminacionSAR('Eliminar seguimiento RF del historial', detalle, async () => {
+    let nubeOk = true;
+    if(enNube && modoOnline()){
+      try {
+        await sb.from('seguimiento_rf_estado').delete().eq('seguimiento_id', s.supabase_id);
+        await sb.from('seguimiento_rf_requisitos').delete().eq('seguimiento_id', s.supabase_id);
+        nubeOk = await sb_eliminarSeguimientoRF(s.supabase_id);
+      } catch(e){
+        console.error('[SAR] Error eliminando seguimiento RF en nube:', e);
+        nubeOk = false;
+      }
+    }
+    state.historyRF = (state.historyRF || []).filter(x => x.id !== id);
+    saveHistoryRF();
+    if(enNube && !nubeOk){
+      toast('Eliminado localmente, pero hubo un error al eliminar de la nube', 'warn');
+    } else {
+      toast('Seguimiento eliminado' + (enNube ? ' (local y nube)' : ''), 'ok');
+    }
+    render();
+  });
 }
 
 function setRFAplica(codigo, aplica){
@@ -7199,6 +7340,7 @@ function renderHistorialRF(){
           <h3>Historial de Seguimientos RF</h3>
           <div style="display:flex;align-items:center;gap:10px">
             <span style="font-size:11px;color:var(--text-3)">${hist.length} seguimientos guardados</span>
+            <button class="btn btn-ghost btn-sm" onclick="backupCompletoSAR()" title="Descarga un respaldo JSON con todas las auditorías, seguimientos RF y datos locales">⬇️ Respaldo completo</button>
             ${modoOnline() && hist.length > 0 ? `<button class="btn btn-primary btn-sm" onclick="sincronizarHistorialRFANube()" title="Sube todos los seguimientos RF a la nube">☁️ Sincronizar todos a la nube</button>` : ''}
           </div>
         </div>

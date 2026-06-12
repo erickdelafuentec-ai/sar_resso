@@ -862,6 +862,11 @@ a{color:var(--primary);text-decoration:none}
 .ia-dot:nth-child(2){animation-delay:.2s}.ia-dot:nth-child(3){animation-delay:.4s}
 @keyframes iablink{0%,60%,100%{opacity:.3;transform:translateY(0)}30%{opacity:1;transform:translateY(-3px)}}
 
+
+/* --- Categorías Asistente IA --- */
+@media (max-width: 720px){ .ia-cat-grid{ grid-template-columns: 1fr !important; } }
+.ia-pregunta:hover{ background:var(--verde-claro,#e6f2ee); }
+
 </style>
 </head>
 <body>
@@ -7800,6 +7805,9 @@ async function enviarMensajeIA(){
 function pintarChatIA(pensando){
   const cont = document.getElementById('ia_chat');
   if(!cont) return;
+  // Si no hay conversación y no estamos "pensando", conservar la pantalla
+  // de bienvenida con las categorías (no sobrescribir con vacío).
+  if(_iaHistorial.length === 0 && !pensando) return;
   const burbujas = _iaHistorial.map(m=>{
     if(m.role==='user'){
       return `<div style="display:flex;justify-content:flex-end;margin-bottom:12px"><div style="max-width:78%;background:${MER.verde};color:#fff;padding:10px 14px;border-radius:14px 14px 4px 14px;font-size:13px;line-height:1.5">${escapeHtml(m.content)}</div></div>`;
@@ -7814,6 +7822,16 @@ function pintarChatIA(pensando){
 function preguntaRapidaIA(q){
   const input = document.getElementById('ia_input');
   if(input){ input.value = q; enviarMensajeIA(); }
+}
+function toggleCatIA(ci){
+  const body = document.getElementById('catbody-'+ci);
+  const arrow = document.getElementById('catarrow-'+ci);
+  if(!body) return;
+  const abierto = body.style.display !== 'none';
+  // cerrar todas
+  document.querySelectorAll('[id^="catbody-"]').forEach(b=>b.style.display='none');
+  document.querySelectorAll('[id^="catarrow-"]').forEach(a=>a.style.transform='rotate(0deg)');
+  if(!abierto){ body.style.display='block'; if(arrow) arrow.style.transform='rotate(180deg)'; }
 }
 
 function abrirConfigIA(){
@@ -7836,12 +7854,39 @@ function abrirConfigIA(){
 function renderAsistenteIA(data){
   state.dashEjecutivo = data;
   const tieneKey = modoOnline();
-  const sugerencias = [
-    '¿Cuáles son los 3 riesgos más urgentes del sistema ahora?',
-    '¿Qué gerencia necesita más atención y por qué?',
-    'Redacta un resumen ejecutivo de la situación actual',
-    '¿Qué empresas tienen peor desempeño y qué planes están vencidos?',
-    '¿Qué RF están bajo 70% de cumplimiento?',
+  const categoriasIA = [
+    { titulo:'Panorama general', icon:'📊', preguntas:[
+      'Dame un resumen ejecutivo de la situación actual del sistema',
+      '¿Cuáles son los 3 riesgos más urgentes ahora mismo?',
+      '¿Cómo viene la tendencia del promedio RESSO en los últimos meses?',
+      '¿Cuántas auditorías, empresas y planes tenemos en total?',
+    ]},
+    { titulo:'Empresas contratistas', icon:'🏢', preguntas:[
+      '¿Qué empresas tienen el peor desempeño?',
+      '¿Cuál es la empresa con mejor cumplimiento y por qué destaca?',
+      'Compara las empresas del ranking y dime cuáles preocupan',
+      '¿Qué empresas tienen planes de acción vencidos?',
+    ]},
+    { titulo:'Gerencias', icon:'🏗️', preguntas:[
+      '¿Qué gerencia necesita más atención y por qué?',
+      'Ordena las gerencias de peor a mejor desempeño',
+      '¿Qué gerencia acumula más planes vencidos?',
+    ]},
+    { titulo:'Riesgos de Fatalidad (RF)', icon:'⚠️', preguntas:[
+      '¿Qué RF están bajo 70% de cumplimiento?',
+      '¿Cuáles son los RF más críticos a nivel sistema?',
+      '¿Qué RF aparece como peor caso y dónde aplica?',
+      'Dame un plan de acción para mejorar los RF más débiles',
+    ]},
+    { titulo:'Planes de acción', icon:'📋', preguntas:[
+      '¿Cuántos planes están vencidos y de qué empresas?',
+      'Lista los planes vencidos ordenados por urgencia',
+      '¿Qué responsables tienen planes pendientes por cerrar?',
+    ]},
+    { titulo:'Hallazgos', icon:'🔍', preguntas:[
+      '¿Cuántos hallazgos N1 críticos hay abiertos?',
+      'Resume la situación de hallazgos N1 y N2 del sistema',
+    ]},
   ];
   return `
     <div class="page">
@@ -7865,8 +7910,22 @@ function renderAsistenteIA(data){
               <div style="font-size:42px;margin-bottom:10px">✦</div>
               <h4 style="margin:0 0 6px;font-size:15px;color:var(--text-2)">Pregúntame sobre tu sistema de auditorías</h4>
               <p style="font-size:12px;max-width:440px;margin:0 auto 18px">Tengo acceso a tus ${(data.kpis||{}).total_auditorias||0} auditorías, ${(data.rfGlobal||[]).filter(r=>(r.veces_aplicable||0)>0).length} RF aplicables y todos los planes de acción.</p>
-              <div style="display:flex;flex-direction:column;gap:8px;max-width:460px;margin:0 auto">
-                ${sugerencias.map(s=>`<button class="btn btn-ghost btn-sm" style="text-align:left;border:1px solid var(--line);font-size:12px;padding:9px 12px" onclick="preguntaRapidaIA('${s.replace(/'/g,"\\'")}')">${s}</button>`).join('')}
+              <div style="max-width:620px;margin:0 auto;text-align:left">
+                <div style="font-size:11px;color:var(--text-3);text-transform:uppercase;letter-spacing:.7px;margin-bottom:10px;text-align:center">Elige una pregunta o escribe la tuya abajo</div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px" class="ia-cat-grid">
+                  ${categoriasIA.map((cat,ci)=>`
+                    <div style="border:1px solid var(--line);border-radius:10px;overflow:hidden;background:#fff">
+                      <div onclick="toggleCatIA(${ci})" style="display:flex;align-items:center;gap:8px;padding:10px 12px;cursor:pointer;background:#faf8f5;user-select:none">
+                        <span style="font-size:15px">${cat.icon}</span>
+                        <span style="font-size:13px;font-weight:700;color:var(--text-2);flex:1">${cat.titulo}</span>
+                        <span id="catarrow-${ci}" style="font-size:11px;color:var(--text-3);transition:.2s;transform:rotate(0deg)">▼</span>
+                      </div>
+                      <div id="catbody-${ci}" style="display:none;padding:6px">
+                        ${cat.preguntas.map(q=>`<button class="btn btn-ghost btn-sm ia-pregunta" style="display:block;width:100%;text-align:left;font-size:12px;padding:8px 10px;margin-bottom:3px;line-height:1.35" onclick="preguntaRapidaIA('${q.replace(/'/g,"\\'")}')">${q}</button>`).join('')}
+                      </div>
+                    </div>
+                  `).join('')}
+                </div>
               </div>
             </div>` : ''}
         </div>

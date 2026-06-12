@@ -3885,6 +3885,11 @@ function buildSidebarParaModulo(mod){
       {view:'riesgos', label:'24 Riesgos de Fatalidad', icon:'<path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>', badge:'badge-riesgos', badgeVal:'0'},
       {view:'planrf', label:'Plan de Acción', icon:'<rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>'},
     ],
+    grupoTitleTerr: 'Auditoría en Terreno',
+    grupoTerr: [
+      {view:'terr_audit', label:'Auditar en Terreno', icon:'<path d="M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>'},
+      {view:'terr_hallazgos', label:'Hallazgos Terreno', icon:'<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>'},
+    ],
     grupo2Title: 'Sistema',
     grupo2: [
       {view:'comparativa', label:'Comparativa', icon:'<line x1="3" y1="6" x2="21" y2="6"/><line x1="9" y1="6" x2="9" y2="20"/><line x1="15" y1="6" x2="15" y2="20"/><line x1="3" y1="13" x2="21" y2="13"/>'},
@@ -3905,6 +3910,7 @@ function buildSidebarParaModulo(mod){
       {view:'mapacalor', label:'Mapa de Calor RF', icon:'<rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/>'},
       {view:'comparativa', label:'Comparativa', icon:'<line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>'},
       {view:'proyeccion', label:'Proyección', icon:'<path d="M3 17l6-6 4 4 8-8"/><path d="M17 7h4v4"/>'},
+      {view:'riesgos_mat', label:'Gestión de Riesgos', icon:'<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>'},
     ],
     grupo2Title: 'Sistema',
     grupo2: [],
@@ -3925,6 +3931,10 @@ function buildSidebarParaModulo(mod){
       <div class="nav-title">${cfg.grupo1Title}</div>
       ${cfg.grupo1.map((it,i)=>renderItem(it, i)).join('')}
     </div>
+    ${cfg.grupoTerr ? `<div class="nav-group">
+      <div class="nav-title">${cfg.grupoTitleTerr}</div>
+      ${cfg.grupoTerr.map(it=>renderItem(it, -1)).join('')}
+    </div>` : ''}
     <div class="nav-group">
       <div class="nav-title">${cfg.grupo2Title}</div>
       ${cfg.grupo2.map(it=>renderItem(it, -1)).join('')}
@@ -4230,6 +4240,8 @@ function render(){
       else if(view==='antecedentes') c.innerHTML = renderAntecedentesRF();
       else if(view==='riesgos') c.innerHTML = renderRiesgosRF();
       else if(view==='planrf') c.innerHTML = renderPlanRF();
+      else if(view==='terr_audit'){ c.innerHTML = renderAuditoriaTerreno(); setTimeout(()=>terrGo(terrStep||0), 30); }
+      else if(view==='terr_hallazgos'){ c.innerHTML = renderHallazgosTerreno(); setTimeout(()=>pintarHallazgosTerreno(), 30); }
       else if(view==='comparativa') c.innerHTML = renderComparativa();
       else if(view==='historial') c.innerHTML = renderHistorialRF();
       else if(view==='ayuda') c.innerHTML = renderAyuda();
@@ -4256,6 +4268,7 @@ function render(){
         else if(view==='mapacalor') c.innerHTML = renderMapaCalorRF(data);
         else if(view==='comparativa') c.innerHTML = renderComparativaEjecutiva(data);
         else if(view==='proyeccion') c.innerHTML = renderProyeccion(data);
+        else if(view==='riesgos_mat') c.innerHTML = renderGestionRiesgos(data);
         else c.innerHTML = '<div class="page"><div class="empty">Vista no encontrada</div></div>';
         // Charts del dashboard ejecutivo
         if(view==='dashboard') setTimeout(()=>drawChartsEjecutivo(data), 50);
@@ -6918,6 +6931,8 @@ const VIEW_TITLES_RF = {
   antecedentes: ['Antecedentes RF', 'Datos del contrato y responsables'],
   riesgos: ['Riesgos de Fatalidad', '24 RF · Controles Críticos · Requisitos'],
   planrf: ['Plan de Acción RF', 'Planes transitorios y proyectos'],
+  terr_audit: ['Auditar en Terreno', 'Verificación Cumple / No cumple / No aplica'],
+  terr_hallazgos: ['Hallazgos Terreno', 'Gestión de hallazgos de auditoría en terreno'],
   comparativa: ['Comparativa', 'Comparar seguimientos RF'],
   historial: ['Historial RF', 'Seguimientos guardados'],
   ayuda: ['Acerca de', 'Información del sistema'],
@@ -6939,6 +6954,459 @@ function navigateRF(view){
 }
 
 // ---------------- VISTAS RF ----------------
+// ============================================================
+//  AUDITORÍA RF EN TERRENO — respuestas predefinidas de los PDF
+//  Reutiliza RF_CATALOGO real (24 RF). Guarda en Supabase.
+// ============================================================
+
+// Catálogos de respuestas predefinidas (selección, sin escribir)
+const TERR_FINDINGS = {
+  default:    { h:['Condición inexistente','Condición deteriorada','No cumple estándar','Registro no disponible','Otro'], a:['Reponer / instalar','Reparar condición','Actualizar registro','Generar solicitud de mantención','Detener actividad'] },
+  senal:      { h:['Señalética inexistente','Señalética ilegible','Señalética deteriorada','Señalética obstruida','Fuera de estándar','Otro'], a:['Instalar señalética faltante','Reponer señalética','Reubicar señalética','Delimitar sector','Generar solicitud','Detener actividad'] },
+  inspeccion: { h:['Inspección vencida','Equipo descargado / inoperativo','Acceso obstruido','Sin trazabilidad','Otro'], a:['Reemplazar equipo','Certificar / recargar','Despejar acceso','Programar inspección','Detener actividad'] },
+  comunicacion:{ h:['Prueba no realizada','Prueba no documentada','Equipo de radio sin batería','Canal no asignado','Otro'], a:['Realizar y documentar prueba','Asignar canal exclusivo','Reemplazar equipo','Detener maniobra'] },
+  bloqueo:    { h:['Bloqueo personal no instalado','Energía cero no verificada','Energía residual sin controlar','Personal no capacitado','Otro'], a:['Instalar bloqueo personal','Verificar energía cero','Controlar energía residual','Capacitar al personal','Detener actividad'] },
+  derrame:    { h:['Kit incompleto','Kit caducado','Kit no disponible','Personal no capacitado','Otro'], a:['Completar kit de derrame','Reemplazar insumos','Capacitar al personal','Detener actividad'] },
+  documental: { h:['Documento inexistente','Documento desactualizado','Sin firma / autorización','No difundido al personal','Otro'], a:['Elaborar documento','Actualizar documento','Gestionar firma/autorización','Difundir al personal','Detener actividad'] },
+  capacitacion:{ h:['Sin registro de capacitación','Capacitación vencida','Personal no acreditado','Cobertura parcial','Otro'], a:['Programar capacitación','Renovar acreditación','Acreditar al personal','Registrar evidencia','Detener actividad'] },
+};
+const TERR_RESP = ['Supervisor','Adm. de Contrato','Jefe de Área','Empresa Contratista','Mandante'];
+const TERR_ROLES = {
+  trabajador:{label:'Trabajador/a', sub:'Autochequeo en terreno'},
+  supervisor:{label:'Supervisor/a', sub:'Verificación de cuadrilla'},
+  ejecutivo:{label:'Ejecutivo/a', sub:'Liderazgo que salva vidas'},
+};
+const TERR_STATES = ['abierto','progreso','verificacion','cerrado'];
+const TERR_STATE_META = {
+  abierto:{label:'Abierto', color:'var(--bad)', bg:'#fdecec'},
+  progreso:{label:'En progreso', color:'#D97706', bg:'#fdf3e3'},
+  verificacion:{label:'En verificación', color:'#2563EB', bg:'#e8effd'},
+  cerrado:{label:'Cerrado', color:'#1E7A63', bg:'#e6f2ee'},
+};
+
+// Clasifica cada requisito real (de los PDF) en un tipo de respuesta predefinida
+function clasificarRequisito(req){
+  const t = ((req.requisito||'') + ' ' + (req.evidencia||'')).toLowerCase();
+  if(/bloqueo|energ[íi]a cero|aislaci[óo]n|candado|loto/.test(t)) return 'bloqueo';
+  if(/se[ñn]al|rotula|demarca|delimit|barrera|segrega/.test(t)) return 'senal';
+  if(/derrame|kit|conten|hds|hoja de datos|sustancia/.test(t)) return 'derrame';
+  if(/comunicaci[óo]n|radio|prueba de comunicaci|canal/.test(t)) return 'comunicacion';
+  if(/capacit|entren|acredit|competenc|curso|licencia/.test(t)) return 'capacitacion';
+  if(/procedimiento|registro|plan |programa|documento|certificado|memoria|protocolo/.test(t)) return 'documental';
+  if(/inspecci[óo]n|mantenci[óo]n|mantenimiento|verificar en terreno|operativ|calibra|estado/.test(t)) return 'inspeccion';
+  return 'default';
+}
+
+// Estado de la auditoría de terreno en curso (en memoria)
+let terrAudit = null; // {rf, rol, empresa, instalacion, area, evals:{uid:{resp,hallazgos:[],acciones:[],resp_cierre,plazo,obs}}, tv:[]}
+let terrStep = 0;
+
+function emptyTerrAudit(){
+  return { rf:null, rol:'supervisor', empresa:'', instalacion:'', area:'', evals:{}, tv:[], creada:new Date().toISOString() };
+}
+
+// ---------- Vista principal con stepper ----------
+function renderAuditoriaTerreno(){
+  if(!terrAudit) terrAudit = emptyTerrAudit();
+  return `
+    <div class="page">
+      <div class="card" style="margin-bottom:14px">
+        <div class="card-b" style="padding:14px 18px">
+          <div style="display:flex;align-items:center;gap:0;flex-wrap:wrap">
+            ${['Datos','Selección RF','Evaluación','Cierre'].map((s,i)=>`
+              <div style="display:flex;align-items:center;gap:8px">
+                <div style="width:26px;height:26px;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:800;font-family:Archivo;background:${i<=terrStep?MER.verde:'#f0ece5'};color:${i<=terrStep?'#fff':'var(--text-3)'}">${i+1}</div>
+                <span style="font-size:12px;font-weight:600;color:${i===terrStep?'var(--text)':'var(--text-3)'}">${s}</span>
+              </div>
+              ${i<3?`<div style="width:32px;height:2px;background:${i<terrStep?MER.verde:'#f0ece5'};margin:0 10px"></div>`:''}
+            `).join('')}
+          </div>
+        </div>
+      </div>
+      <div id="terr_body"></div>
+    </div>
+  `;
+}
+
+function terrGo(n){ terrStep = n; const b=document.getElementById('terr_body'); if(!b) return;
+  if(n===0) b.innerHTML = terrStep0();
+  else if(n===1) b.innerHTML = terrStep1();
+  else if(n===2) b.innerHTML = terrStep2();
+  else if(n===3) b.innerHTML = terrStep3();
+  // re-render del stepper
+  const page = b.closest('.page'); if(page){ const card=page.querySelector('.card'); }
+  document.querySelectorAll('#content .page .card').forEach(()=>{});
+  render_terr_stepper();
+  const sc = document.getElementById('content'); if(sc) sc.scrollTop = 0;
+}
+function render_terr_stepper(){
+  // Actualiza solo los círculos del stepper sin re-renderizar el body
+  const page = document.querySelector('#content .page');
+  if(!page) return;
+}
+
+// PASO 1 — datos
+function terrStep0(){
+  return `
+    <div class="card">
+      <div class="card-h"><div><div style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:.8px">Paso 1 · Datos de la auditoría</div><h3 style="margin-top:2px">Configurar auditoría de terreno</h3></div></div>
+      <div class="card-b">
+        <div style="font-size:12px;color:var(--text-2);margin-bottom:14px">Selecciona el rol de verificación y el contexto. La fecha se registra automáticamente.</div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:18px">
+          ${Object.entries(TERR_ROLES).map(([k,r])=>`
+            <div onclick="terrAudit.rol='${k}';terrGo(0)" style="cursor:pointer;border:2px solid ${terrAudit.rol===k?MER.verde:'var(--line)'};border-radius:10px;padding:14px;background:${terrAudit.rol===k?MER.verdeClaro:'#fff'}">
+              <div style="font-size:13px;font-weight:700;color:${terrAudit.rol===k?MER.verde:'var(--text)'}">${r.label}</div>
+              <div style="font-size:11px;color:var(--text-3);margin-top:2px">${r.sub}</div>
+            </div>`).join('')}
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div class="field"><label>Empresa contratista</label><input type="text" value="${escapeHtml(terrAudit.empresa)}" oninput="terrAudit.empresa=this.value"></div>
+          <div class="field"><label>Instalación / Faena</label><input type="text" value="${escapeHtml(terrAudit.instalacion)}" oninput="terrAudit.instalacion=this.value"></div>
+          <div class="field" style="grid-column:1/-1"><label>Área / Sector</label><input type="text" value="${escapeHtml(terrAudit.area)}" oninput="terrAudit.area=this.value"></div>
+        </div>
+        <div style="display:flex;justify-content:flex-end;margin-top:18px">
+          <button class="btn btn-primary" style="background:${MER.verde};border-color:${MER.verde}" onclick="terrGo(1)">Continuar →</button>
+        </div>
+      </div>
+    </div>`;
+}
+
+// PASO 2 — seleccionar RF (del catálogo real)
+function terrStep1(){
+  const rfs = Object.values(RF_CATALOGO);
+  return `
+    <div class="card">
+      <div class="card-h"><div><div style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:.8px">Paso 2 · Riesgo de Fatalidad</div><h3 style="margin-top:2px">Seleccionar RF a evaluar</h3></div></div>
+      <div class="card-b">
+        <div style="font-size:12px;color:var(--text-2);margin-bottom:14px">Al elegir un RF se cargan sus controles críticos, requisitos y evidencias reales (de los estándares).</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px">
+          ${rfs.map(r=>{
+            const sel = terrAudit.rf===r.codigo;
+            return `<div onclick="terrAudit.rf='${r.codigo}';terrGo(1)" style="cursor:pointer;border:2px solid ${sel?MER.verde:'var(--line)'};border-radius:10px;overflow:hidden;background:#fff">
+              <div style="background:${sel?MER.verde:'#1a2632'};color:#fff;padding:10px 12px">
+                <div style="font-size:13px;font-weight:800;font-family:Archivo">${r.codigo}</div>
+                <div style="font-size:11px;opacity:.9;line-height:1.25;margin-top:2px">${escapeHtml(r.nombre)}</div>
+              </div>
+              <div style="padding:9px 12px">
+                <div style="font-size:10px;color:var(--text-3);line-height:1.3">${escapeHtml((r.eventoTop||'').slice(0,70))}</div>
+                <div style="display:flex;gap:5px;margin-top:7px">
+                  <span style="font-size:9px;padding:2px 7px;border-radius:8px;background:#e6f2ee;color:#1E7A63;font-weight:700">${r.totalCC} CC</span>
+                  <span style="font-size:9px;padding:2px 7px;border-radius:8px;background:#faf8f5;color:var(--text-3);font-weight:700">${r.totalReq} req.</span>
+                </div>
+              </div>
+            </div>`;
+          }).join('')}
+        </div>
+        <div style="display:flex;justify-content:space-between;margin-top:18px">
+          <button class="btn btn-ghost" onclick="terrGo(0)">← Atrás</button>
+          <button class="btn btn-primary" style="background:${MER.verde};border-color:${MER.verde}" onclick="terrEvaluarSiRF()">Evaluar ${terrAudit.rf||''} →</button>
+        </div>
+      </div>
+    </div>`;
+}
+
+// PASO 3 — evaluación con respuestas predefinidas
+function terrStep2(){
+  const r = RF_CATALOGO[terrAudit.rf];
+  if(!r){ return terrStep1(); }
+  const roleNote = {
+    trabajador:'Autochequeo previo al inicio de la tarea. Si una respuesta es "No cumple", aplica tarjeta verde y notifica al supervisor.',
+    supervisor:'Verificación de la cuadrilla en terreno. Si una respuesta es "No cumple", detiene la actividad y gestiona el control crítico.',
+    ejecutivo:'Verificación de liderazgo. Confirma que el sistema asegura la implementación del control crítico.'
+  };
+  let body = '';
+  r.controles.forEach((cc,ci)=>{
+    let reqs = '';
+    cc.requisitos.forEach((req,ri)=>{
+      const uid = ci+'_'+ri;
+      const tipo = clasificarRequisito(req);
+      const fset = TERR_FINDINGS[tipo] || TERR_FINDINGS.default;
+      const ev = terrAudit.evals[uid] || {};
+      const respClass = ev.resp;
+      reqs += `
+        <div class="terr-req" style="border:1px solid var(--line);border-radius:10px;padding:14px;margin-bottom:10px;background:#fff">
+          <div style="display:flex;justify-content:space-between;gap:14px;align-items:flex-start;flex-wrap:wrap">
+            <div style="flex:1;min-width:220px">
+              <div style="display:flex;gap:8px;align-items:baseline">
+                <span style="font-size:12px;font-weight:800;color:${MER.verde};font-family:Archivo">${ri+1}</span>
+                <div style="font-size:13px;font-weight:700">${escapeHtml(req.requisito)}</div>
+              </div>
+              <div style="font-size:12px;color:var(--text-2);margin-top:4px;line-height:1.4">${escapeHtml(req.evidencia||'')}</div>
+              <span style="display:inline-block;margin-top:6px;font-size:9px;padding:2px 8px;border-radius:8px;background:#faf8f5;color:var(--text-3)">Monitoreo: ${escapeHtml(req.monitoreo||'—')} · ${escapeHtml(req.codigoFila||'')}</span>
+            </div>
+            <div style="display:flex;gap:6px">
+              <button class="btn btn-sm" onclick="terrResp('${uid}','c')" style="border:1.5px solid ${respClass==='c'?'#1E7A63':'var(--line)'};background:${respClass==='c'?'#e6f2ee':'#fff'};color:${respClass==='c'?'#1E7A63':'var(--text-2)'};font-weight:700;font-size:12px;padding:6px 12px">✓ Cumple</button>
+              <button class="btn btn-sm" onclick="terrResp('${uid}','n')" style="border:1.5px solid ${respClass==='n'?'#DC2626':'var(--line)'};background:${respClass==='n'?'#DC2626':'#fff'};color:${respClass==='n'?'#fff':'var(--text-2)'};font-weight:700;font-size:12px;padding:6px 12px">✕ No cumple</button>
+              <button class="btn btn-sm" onclick="terrResp('${uid}','a')" style="border:1.5px solid ${respClass==='a'?'#888':'var(--line)'};background:${respClass==='a'?'#f0ece5':'#fff'};color:var(--text-2);font-weight:700;font-size:12px;padding:6px 12px">— No aplica</button>
+            </div>
+          </div>
+          <div id="terr_nc_${uid}" style="${respClass==='n'?'':'display:none'}">
+            ${respClass==='n' ? terrNoCumpleBlock(uid, cc, fset) : ''}
+          </div>
+        </div>`;
+    });
+    body += `<div style="margin-bottom:18px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+        <span style="font-size:11px;font-weight:800;padding:3px 10px;border-radius:8px;background:${cc.codigo.startsWith('CCP')?'#e6f2ee':'#fdf3e3'};color:${cc.codigo.startsWith('CCP')?'#1E7A63':'#D97706'}">${cc.codigo}</span>
+        <span style="font-size:13px;font-weight:700">${escapeHtml(cc.nombre)}</span>
+      </div>
+      ${reqs}
+    </div>`;
+  });
+  return `
+    <div class="card">
+      <div class="card-h"><div><div style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:.8px">Paso 3 · Evaluación · ${r.codigo} · ${TERR_ROLES[terrAudit.rol].label}</div><h3 style="margin-top:2px">${r.codigo} · ${escapeHtml(r.nombre)}</h3></div></div>
+      <div class="card-b">
+        <div style="font-size:12px;color:var(--text-2);margin-bottom:16px;padding:10px 12px;background:#faf8f5;border-radius:8px">${roleNote[terrAudit.rol]}</div>
+        ${body}
+        <div style="display:flex;justify-content:space-between;margin-top:8px">
+          <button class="btn btn-ghost" onclick="terrGo(1)">← Cambiar RF</button>
+          <button class="btn btn-primary" style="background:${MER.verde};border-color:${MER.verde}" onclick="terrGo(3)">Finalizar y guardar →</button>
+        </div>
+      </div>
+    </div>`;
+}
+
+// Bloque que aparece bajo un "No cumple": tarjeta verde + hallazgos/acciones predefinidos
+function terrNoCumpleBlock(uid, cc, fset){
+  const ev = terrAudit.evals[uid] || {};
+  const tvEmitida = (terrAudit.tv||[]).some(t=>t.uid===uid);
+  return `
+    <div style="margin-top:12px;border:1.5px solid #1E7A63;border-radius:10px;padding:12px 14px;background:#f3f9f6;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      <div style="flex:1;min-width:200px">
+        <div style="font-size:13px;font-weight:700;color:#1E7A63">${tvEmitida?'Tarjeta verde emitida · Actividad detenida':'Detención de actividad requerida'}</div>
+        <div style="font-size:11px;color:var(--text-2);margin-top:2px">${tvEmitida ? (terrAudit.tv.find(t=>t.uid===uid).folio+' · notificada al supervisor') : 'Una respuesta "No cumple" en un control crítico obliga a detener la tarea. Emite la tarjeta verde y notifica.'}</div>
+      </div>
+      ${tvEmitida ? '<span style="font-size:12px;font-weight:700;color:#1E7A63">✓ Emitida</span>' :
+        `<button class="btn btn-sm" style="background:#1E7A63;color:#fff;border-color:#1E7A63;font-weight:700;padding:8px 14px" onclick="terrTarjetaVerde('${uid}')">Emitir tarjeta verde</button>`}
+    </div>
+    <div style="margin-top:12px;border:1px solid #f3d6d3;border-radius:10px;padding:14px;background:#fdf6f5">
+      <div style="font-size:11px;font-weight:800;color:#DC2626;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">⚠ Hallazgos identificados</div>
+      <div style="display:flex;flex-wrap:wrap;gap:7px">
+        ${fset.h.map(o=>`<label class="terr-chip" style="display:flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:8px;padding:7px 11px;font-size:12px;cursor:pointer;background:${(ev.hallazgos||[]).includes(o)?'#e6f2ee':'#fff'};border-color:${(ev.hallazgos||[]).includes(o)?'#1E7A63':'var(--line)'}"><input type="checkbox" ${(ev.hallazgos||[]).includes(o)?'checked':''} onchange="terrToggle('${uid}','hallazgos','${o.replace(/'/g,"\\'")}',this.checked)" style="accent-color:#1E7A63">${o}</label>`).join('')}
+      </div>
+      <div style="font-size:11px;font-weight:800;color:#D97706;text-transform:uppercase;letter-spacing:.5px;margin:14px 0 8px">✓ Acciones correctivas</div>
+      <div style="display:flex;flex-wrap:wrap;gap:7px">
+        ${fset.a.map(o=>`<label style="display:flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:8px;padding:7px 11px;font-size:12px;cursor:pointer;background:${(ev.acciones||[]).includes(o)?'#fdf3e3':'#fff'};border-color:${(ev.acciones||[]).includes(o)?'#D97706':'var(--line)'}"><input type="checkbox" ${(ev.acciones||[]).includes(o)?'checked':''} onchange="terrToggle('${uid}','acciones','${o.replace(/'/g,"\\'")}',this.checked)" style="accent-color:#D97706">${o}</label>`).join('')}
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:14px">
+        <div class="field"><label>Plazo de cierre</label><select onchange="terrSet('${uid}','plazo',this.value)">
+          ${['24 horas','72 horas','7 días','15 días','30 días'].map(p=>`<option ${ev.plazo===p?'selected':''} ${!ev.plazo&&p==='72 horas'?'selected':''}>${p}</option>`).join('')}
+        </select></div>
+        <div class="field"><label>Responsable del cierre</label><select onchange="terrSet('${uid}','responsable',this.value)">
+          <option value="">Seleccionar…</option>
+          ${TERR_RESP.map(rp=>`<option ${ev.responsable===rp?'selected':''}>${rp}</option>`).join('')}
+        </select></div>
+      </div>
+    </div>`;
+}
+
+function terrEvaluarSiRF(){ if(terrAudit && terrAudit.rf){ terrGo(2); } else { toast('Selecciona un RF', 'warn'); } }
+function terrResp(uid, type){
+  if(!terrAudit.evals[uid]) terrAudit.evals[uid] = {};
+  terrAudit.evals[uid].resp = type;
+  const cont = document.getElementById('terr_nc_'+uid);
+  // re-render del paso para reflejar el bloque No cumple
+  terrGo(2);
+}
+function terrToggle(uid, campo, val, on){
+  const ev = terrAudit.evals[uid] = terrAudit.evals[uid] || {};
+  ev[campo] = ev[campo] || [];
+  if(on){ if(!ev[campo].includes(val)) ev[campo].push(val); }
+  else { ev[campo] = ev[campo].filter(x=>x!==val); }
+}
+function terrSet(uid, campo, val){ const ev=terrAudit.evals[uid]=terrAudit.evals[uid]||{}; ev[campo]=val; }
+function terrTarjetaVerde(uid){
+  terrAudit.tv = terrAudit.tv || [];
+  if(terrAudit.tv.some(t=>t.uid===uid)) return;
+  const folio = 'TV-' + (2400 + Math.floor(Math.random()*599));
+  terrAudit.tv.push({uid, folio, hora:new Date().toTimeString().slice(0,5)});
+  toast('Tarjeta verde emitida · actividad detenida', 'ok');
+  terrGo(2);
+}
+
+// Construye la observación técnica (sin IA, plantilla de los estándares)
+function terrObservacion(rf, ccCodigo, hallazgo, accion){
+  const h = (hallazgo||'desviación detectada').toLowerCase();
+  const a = (accion||'implementar acción correctiva').toLowerCase();
+  return `Durante la inspección en terreno se verificó "${h}" en el sector evaluado, incumpliendo el requisito establecido para el control crítico ${ccCodigo} del riesgo de fatalidad ${rf}. La desviación compromete la efectividad del control y eleva la probabilidad de materialización del evento top. Como medida correctiva se establece: ${a}, con responsable y plazo de cierre definidos. Se recomienda verificar la efectividad de la acción en la próxima auditoría programada.`;
+}
+
+// PASO 4 — resumen + guardar
+function terrStep3(){
+  const r = RF_CATALOGO[terrAudit.rf];
+  let cumple=0, noCumple=0, noAplica=0, total=0;
+  const hallazgos = [];
+  r.controles.forEach((cc,ci)=>{
+    cc.requisitos.forEach((req,ri)=>{
+      const uid=ci+'_'+ri; const ev=terrAudit.evals[uid];
+      total++;
+      if(!ev||!ev.resp) return;
+      if(ev.resp==='c') cumple++;
+      else if(ev.resp==='a') noAplica++;
+      else if(ev.resp==='n'){
+        noCumple++;
+        const hTxt=(ev.hallazgos||[]).join('; ')||'Hallazgo sin especificar';
+        const aTxt=(ev.acciones||[]).join('; ')||'Acción por definir';
+        const sev = (terrAudit.tv||[]).some(t=>t.uid===uid)?'CRÍTICO':'ALTO';
+        hallazgos.push({ uid, cc:cc.codigo, requisito:req.requisito, hallazgo:hTxt, accion:aTxt,
+          responsable:ev.responsable||'Por asignar', plazo:ev.plazo||'72 horas', severidad:sev,
+          obs: terrObservacion(r.codigo, cc.codigo, (ev.hallazgos||[])[0], (ev.acciones||[])[0]) });
+      }
+    });
+  });
+  const evaluados = cumple+noCumple+noAplica;
+  const base = cumple+noCumple;
+  const pct = base ? cumple/base : 0;
+  terrAudit._resumen = { cumple, noCumple, noAplica, total, pct, hallazgos };
+  return `
+    <div class="card">
+      <div class="card-h"><div><div style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:.8px">Paso 4 · Resultado</div><h3 style="margin-top:2px">Resumen de la auditoría ${r.codigo}</h3></div></div>
+      <div class="card-b">
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:18px">
+          <div style="text-align:center;padding:14px;border-radius:10px;background:#e6f2ee"><div style="font-size:28px;font-weight:800;color:#1E7A63;font-family:Archivo">${cumple}</div><div style="font-size:11px;color:var(--text-3)">Cumple</div></div>
+          <div style="text-align:center;padding:14px;border-radius:10px;background:#fdecec"><div style="font-size:28px;font-weight:800;color:#DC2626;font-family:Archivo">${noCumple}</div><div style="font-size:11px;color:var(--text-3)">No cumple</div></div>
+          <div style="text-align:center;padding:14px;border-radius:10px;background:#f0ece5"><div style="font-size:28px;font-weight:800;color:#666;font-family:Archivo">${noAplica}</div><div style="font-size:11px;color:var(--text-3)">No aplica</div></div>
+          <div style="text-align:center;padding:14px;border-radius:10px;background:${pct>=0.9?'#e6f2ee':pct>=0.7?'#fdf3e3':'#fdecec'}"><div style="font-size:28px;font-weight:800;color:${pct>=0.9?'#1E7A63':pct>=0.7?'#D97706':'#DC2626'};font-family:Archivo">${(pct*100).toFixed(0)}%</div><div style="font-size:11px;color:var(--text-3)">Cumplimiento</div></div>
+        </div>
+        ${(terrAudit.tv||[]).length ? `<div style="padding:10px 14px;background:#f3f9f6;border:1px solid #1E7A63;border-radius:8px;margin-bottom:14px;font-size:12px;color:#1E7A63"><b>${terrAudit.tv.length} tarjeta(s) verde emitida(s):</b> ${terrAudit.tv.map(t=>t.folio).join(', ')}</div>`:''}
+        ${hallazgos.length ? `
+          <div style="font-size:13px;font-weight:700;margin-bottom:8px">Hallazgos detectados (${hallazgos.length})</div>
+          ${hallazgos.map(h=>`<div style="border:1px solid var(--line);border-radius:8px;padding:12px;margin-bottom:8px">
+            <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px"><span style="font-size:10px;font-weight:800;padding:2px 8px;border-radius:6px;background:#e6f2ee;color:#1E7A63">${h.cc}</span><span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:6px;background:${h.severidad==='CRÍTICO'?'#fdecec':'#fdf3e3'};color:${h.severidad==='CRÍTICO'?'#DC2626':'#D97706'}">${h.severidad}</span><span style="font-size:12px;color:var(--text-2)">${escapeHtml(h.requisito)}</span></div>
+            <div style="font-size:12px;color:var(--text);line-height:1.5">${escapeHtml(h.obs)}</div>
+            <div style="font-size:11px;color:var(--text-3);margin-top:6px">Responsable: <b>${escapeHtml(h.responsable)}</b> · Plazo: ${escapeHtml(h.plazo)}</div>
+          </div>`).join('')}
+        ` : '<div style="text-align:center;padding:24px;color:#1E7A63"><div style="font-size:30px">✅</div><p style="font-weight:600;margin:6px 0 0">Sin hallazgos · todos los controles conformes</p></div>'}
+        <div style="display:flex;justify-content:space-between;margin-top:18px">
+          <button class="btn btn-ghost" onclick="terrGo(2)">← Volver a evaluación</button>
+          <button class="btn btn-primary" style="background:${MER.verde};border-color:${MER.verde}" onclick="terrGuardar()">💾 Guardar auditoría en la nube</button>
+        </div>
+      </div>
+    </div>`;
+}
+
+async function terrGuardar(){
+  if(!modoOnline()){ toast('Necesitas conexión a Supabase para guardar', 'warn'); return; }
+  const r = RF_CATALOGO[terrAudit.rf];
+  const res = terrAudit._resumen;
+  if(!res){ toast('Completa la evaluación primero', 'warn'); return; }
+  try {
+    let token, userId;
+    try { const { data } = await sb.auth.getSession(); userId = data?.session?.user?.id; } catch(e){}
+    if(!userId){ toast('Sesión no encontrada. Inicia sesión.', 'bad'); return; }
+    // 1. Insertar auditoría
+    const { data: aud, error: e1 } = await sb.from('auditorias_terreno').insert({
+      user_id:userId, rf_codigo:r.codigo, rf_nombre:r.nombre, rol:terrAudit.rol,
+      empresa:terrAudit.empresa, instalacion:terrAudit.instalacion, area:terrAudit.area,
+      total_req:res.total, cumple:res.cumple, no_cumple:res.noCumple, no_aplica:res.noAplica,
+      pct_cumplimiento:res.pct, tarjeta_verde:(terrAudit.tv||[]).length>0,
+      folio_tv:(terrAudit.tv||[]).map(t=>t.folio).join(', ')||null
+    }).select().single();
+    if(e1) throw e1;
+    // 2. Insertar hallazgos
+    if(res.hallazgos.length){
+      const hoy = new Date();
+      const rows = res.hallazgos.map(h=>{
+        const dias = h.plazo.includes('24')?1:h.plazo.includes('72')?3:h.plazo.includes('7')?7:h.plazo.includes('15')?15:30;
+        const fc = new Date(hoy.getTime()+dias*86400000).toISOString().slice(0,10);
+        return { auditoria_id:aud.id, user_id:userId, rf_codigo:r.codigo, cc_codigo:h.cc,
+          requisito:h.requisito, hallazgo:h.hallazgo, accion:h.accion, responsable:h.responsable,
+          plazo:h.plazo, severidad:h.severidad, estado:'abierto', observacion_ia:h.obs, fecha_compromiso:fc,
+          log:[{s:'abierto', at:new Date().toISOString().slice(0,16).replace('T',' '), by:'Auditoría de terreno', note:'Hallazgo detectado en terreno'}] };
+      });
+      const { error: e2 } = await sb.from('hallazgos_terreno').insert(rows);
+      if(e2) throw e2;
+    }
+    toast('Auditoría guardada en la nube ✓', 'ok');
+    terrAudit = emptyTerrAudit(); terrStep = 0;
+    navigateRF('terr_hallazgos');
+  } catch(e){
+    console.error('[SAR][terreno]', e);
+    toast('Error al guardar: ' + (e.message||e), 'bad');
+  }
+}
+
+// ---------- Vista de hallazgos de terreno (Kanban) ----------
+let _terrHallazgos = [];
+async function cargarHallazgosTerreno(){
+  if(!modoOnline()) return [];
+  try {
+    const { data } = await sb.from('hallazgos_terreno').select('*').order('creada',{ascending:false});
+    return data || [];
+  } catch(e){ console.error('[SAR][terreno] carga:', e); return []; }
+}
+function renderHallazgosTerreno(){
+  return `<div class="page"><div id="terr_hall_body"><div class="card"><div class="card-b"><div class="empty" style="padding:40px;text-align:center;color:var(--text-3)">Cargando hallazgos…</div></div></div></div></div>`;
+}
+async function pintarHallazgosTerreno(){
+  _terrHallazgos = await cargarHallazgosTerreno();
+  const cont = document.getElementById('terr_hall_body');
+  if(!cont) return;
+  const cols = TERR_STATES.map(st=>{
+    const m = TERR_STATE_META[st];
+    const list = _terrHallazgos.filter(h=>h.estado===st);
+    const cards = list.map(h=>`
+      <div onclick="abrirHallazgoTerreno('${h.id}')" style="border:1px solid var(--line);border-radius:9px;padding:11px;margin-bottom:8px;cursor:pointer;background:#fff">
+        <div style="display:flex;gap:6px;margin-bottom:6px"><span style="font-size:9px;font-weight:800;padding:2px 7px;border-radius:6px;background:${m.bg};color:${m.color}">${h.rf_codigo}</span><span style="font-size:9px;font-weight:700;padding:2px 7px;border-radius:6px;background:${h.severidad==='CRÍTICO'?'#fdecec':'#fdf3e3'};color:${h.severidad==='CRÍTICO'?'#DC2626':'#D97706'}">${h.severidad}</span></div>
+        <div style="font-size:12px;line-height:1.4;color:var(--text)">${escapeHtml((h.hallazgo||'').slice(0,80))}</div>
+        <div style="font-size:10px;color:var(--text-3);margin-top:6px">${escapeHtml(h.cc_codigo||'')} · ${escapeHtml(h.responsable||'')}</div>
+      </div>`).join('') || '<div style="font-size:11px;color:var(--text-3);text-align:center;padding:14px">Sin hallazgos</div>';
+    return `<div style="flex:1;min-width:230px">
+      <div style="display:flex;align-items:center;gap:7px;margin-bottom:10px"><span style="width:9px;height:9px;border-radius:50%;background:${m.color}"></span><span style="font-size:12px;font-weight:700">${m.label}</span><span style="font-size:11px;color:var(--text-3)">(${list.length})</span></div>
+      ${cards}
+    </div>`;
+  }).join('');
+  cont.innerHTML = `
+    <div class="card" style="margin-bottom:14px"><div class="card-b" style="padding:14px 18px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
+      <div><div style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:.8px">Ciclo de cierre</div><h3 style="margin:2px 0 0">Hallazgos de auditoría en terreno</h3></div>
+      <button class="btn btn-primary btn-sm" style="background:${MER.verde};border-color:${MER.verde}" onclick="navigateRF('terr_audit')">+ Nueva auditoría en terreno</button>
+    </div></div>
+    <div class="card"><div class="card-b"><div style="display:flex;gap:14px;overflow-x:auto">${cols}</div></div></div>`;
+}
+function abrirHallazgoTerreno(id){
+  const h = _terrHallazgos.find(x=>x.id===id);
+  if(!h) return;
+  const idx = TERR_STATES.indexOf(h.estado);
+  const log = Array.isArray(h.log)?h.log:[];
+  const botones = [];
+  if(idx < TERR_STATES.length-1) botones.push(`<button class="btn btn-primary" style="background:${MER.verde};border-color:${MER.verde}" onclick="avanzarHallazgoTerreno('${id}','${TERR_STATES[idx+1]}')">Avanzar a ${TERR_STATE_META[TERR_STATES[idx+1]].label} →</button>`);
+  if(idx > 0) botones.push(`<button class="btn btn-ghost" onclick="avanzarHallazgoTerreno('${id}','${TERR_STATES[idx-1]}')">← Devolver</button>`);
+  const body = `
+    <div style="font-size:13px;line-height:1.6">
+      <div style="display:flex;gap:6px;margin-bottom:10px"><span style="font-size:10px;font-weight:800;padding:2px 8px;border-radius:6px;background:#e6f2ee;color:#1E7A63">${h.rf_codigo} · ${escapeHtml(h.cc_codigo||'')}</span><span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:6px;background:${h.severidad==='CRÍTICO'?'#fdecec':'#fdf3e3'};color:${h.severidad==='CRÍTICO'?'#DC2626':'#D97706'}">${h.severidad}</span></div>
+      <div style="font-size:12px;color:var(--text-3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">Requisito</div>
+      <div style="margin-bottom:10px">${escapeHtml(h.requisito||'')}</div>
+      <div style="font-size:12px;color:var(--text-3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">Hallazgo</div>
+      <div style="margin-bottom:10px">${escapeHtml(h.hallazgo||'')}</div>
+      <div style="font-size:12px;color:var(--text-3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">Observación técnica</div>
+      <div style="margin-bottom:10px;padding:10px;background:#faf8f5;border-radius:8px;font-size:12px">${escapeHtml(h.observacion_ia||'')}</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
+        <div><div style="font-size:11px;color:var(--text-3)">Acción correctiva</div><b style="font-size:12px">${escapeHtml(h.accion||'')}</b></div>
+        <div><div style="font-size:11px;color:var(--text-3)">Responsable · Plazo</div><b style="font-size:12px">${escapeHtml(h.responsable||'')} · ${escapeHtml(h.plazo||'')}</b></div>
+      </div>
+      <div style="font-size:12px;color:var(--text-3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Historial de cierre</div>
+      <div style="border-left:2px solid var(--line);padding-left:12px">
+        ${log.map(l=>`<div style="margin-bottom:8px"><div style="font-size:12px;font-weight:700;color:${(TERR_STATE_META[l.s]||{}).color||'var(--text)'}">${(TERR_STATE_META[l.s]||{}).label||l.s}</div><div style="font-size:11px;color:var(--text-3)">${escapeHtml(l.at||'')} · ${escapeHtml(l.by||'')}${l.note?' — '+escapeHtml(l.note):''}</div></div>`).join('')}
+      </div>
+    </div>`;
+  openModal(`Hallazgo ${h.rf_codigo}`, body, botones.join(''));
+}
+async function avanzarHallazgoTerreno(id, ns){
+  const h = _terrHallazgos.find(x=>x.id===id);
+  if(!h) return;
+  const notes = {progreso:'Acción correctiva en ejecución',verificacion:'Acción ejecutada, pendiente verificación',cerrado:'Verificado en terreno, cierre conforme',abierto:'Reabierto para nueva gestión'};
+  const log = Array.isArray(h.log)?h.log.slice():[];
+  log.push({s:ns, at:new Date().toISOString().slice(0,16).replace('T',' '), by:(state.user&&state.user.name)||'Usuario', note:notes[ns]||''});
+  try {
+    await sb.from('hallazgos_terreno').update({estado:ns, log}).eq('id', id);
+    closeModal();
+    await pintarHallazgosTerreno();
+    toast('Hallazgo → '+TERR_STATE_META[ns].label, 'ok');
+  } catch(e){ console.error(e); toast('Error al actualizar: '+e.message, 'bad'); }
+}
+
+
 function renderDashboardRF(){
   const seg = getSeguimientoRF();
   const c = clasificarRF(seg.pctGeneral);
@@ -7802,17 +8270,86 @@ async function enviarMensajeIA(){
   }
   pintarChatIA(false);
 }
+function exportarRespuestaPDF(idx){
+  try {
+    const msg = _iaHistorial[idx];
+    if(!msg || msg.role!=='assistant'){ toast('No se encontró la respuesta', 'warn'); return; }
+    // Pregunta asociada (el mensaje de usuario inmediatamente anterior)
+    let pregunta = '';
+    for(let i=idx-1;i>=0;i--){ if(_iaHistorial[i].role==='user'){ pregunta = _iaHistorial[i].content; break; } }
+
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({orientation:'portrait', unit:'mm', format:'a4'});
+    const pageW = doc.internal.pageSize.getWidth();
+    const pageH = doc.internal.pageSize.getHeight();
+    const margin = 14;
+    const maxW = pageW - margin*2;
+
+    // Header
+    doc.setFillColor(30,122,99); doc.rect(0,0,pageW,22,'F');
+    doc.setTextColor(255,255,255); doc.setFont('helvetica','bold'); doc.setFontSize(15);
+    doc.text('SAR · Informe del Asistente IA', margin, 12);
+    doc.setTextColor(225,240,234); doc.setFontSize(9); doc.setFont('helvetica','normal');
+    doc.text('Análisis consolidado del sistema · ' + new Date().toLocaleString('es-CL'), margin, 18);
+
+    let y = 30;
+    // Pregunta
+    if(pregunta){
+      doc.setTextColor(30,122,99); doc.setFont('helvetica','bold'); doc.setFontSize(10);
+      doc.text('Consulta', margin, y); y += 5;
+      doc.setTextColor(40,50,60); doc.setFont('helvetica','normal'); doc.setFontSize(10);
+      const pl = doc.splitTextToSize(pregunta, maxW);
+      doc.text(pl, margin, y); y += pl.length*5 + 4;
+    }
+
+    // Línea divisoria
+    doc.setDrawColor(225,225,220); doc.line(margin, y, pageW-margin, y); y += 7;
+
+    // Respuesta (limpiar markdown básico)
+    doc.setTextColor(30,122,99); doc.setFont('helvetica','bold'); doc.setFontSize(10);
+    doc.text('Respuesta del Asistente IA', margin, y); y += 6;
+
+    const limpio = msg.content
+      .replace(/\*\*(.+?)\*\*/g, '$1')   // negritas
+      .replace(/^#+\s*/gm, '')           // encabezados markdown
+      .replace(/^\s*[-*]\s+/gm, '• ');   // viñetas
+    doc.setTextColor(40,50,60); doc.setFont('helvetica','normal'); doc.setFontSize(10);
+    const lineas = doc.splitTextToSize(limpio, maxW);
+    lineas.forEach(ln=>{
+      if(y > pageH - 18){ doc.addPage(); y = 18; }
+      doc.text(ln, margin, y); y += 5.4;
+    });
+
+    // Footer en cada página
+    const total = doc.internal.getNumberOfPages();
+    for(let p=1;p<=total;p++){
+      doc.setPage(p);
+      doc.setDrawColor(225,225,220); doc.line(margin, pageH-12, pageW-margin, pageH-12);
+      doc.setTextColor(150,150,145); doc.setFontSize(8); doc.setFont('helvetica','normal');
+      doc.text('Generado por el Asistente IA de SAR · Las conclusiones se basan en los datos del sistema al momento de la consulta.', margin, pageH-7);
+      doc.text(`Pág. ${p}/${total}`, pageW-margin, pageH-7, {align:'right'});
+    }
+
+    const fecha = new Date().toISOString().slice(0,10);
+    doc.save(`SAR_informe_IA_${fecha}.pdf`);
+    toast('Informe PDF descargado', 'ok');
+  } catch(e){
+    console.error('[SAR][PDF IA]', e);
+    toast('Error al generar PDF: '+e.message, 'bad');
+  }
+}
+
 function pintarChatIA(pensando){
   const cont = document.getElementById('ia_chat');
   if(!cont) return;
   // Si no hay conversación y no estamos "pensando", conservar la pantalla
   // de bienvenida con las categorías (no sobrescribir con vacío).
   if(_iaHistorial.length === 0 && !pensando) return;
-  const burbujas = _iaHistorial.map(m=>{
+  const burbujas = _iaHistorial.map((m,i)=>{
     if(m.role==='user'){
       return `<div style="display:flex;justify-content:flex-end;margin-bottom:12px"><div style="max-width:78%;background:${MER.verde};color:#fff;padding:10px 14px;border-radius:14px 14px 4px 14px;font-size:13px;line-height:1.5">${escapeHtml(m.content)}</div></div>`;
     }
-    return `<div style="display:flex;gap:10px;margin-bottom:12px"><div style="width:28px;height:28px;border-radius:8px;background:${MER.verdeClaro};color:${MER.verde};display:grid;place-items:center;flex:none;font-size:15px">✦</div><div style="max-width:82%;background:#faf8f5;border:1px solid var(--line);padding:10px 14px;border-radius:4px 14px 14px 14px;font-size:13px;line-height:1.6;white-space:pre-wrap">${escapeHtml(m.content).replace(/\*\*(.+?)\*\*/g,'<b>$1</b>')}</div></div>`;
+    return `<div style="display:flex;gap:10px;margin-bottom:12px"><div style="width:28px;height:28px;border-radius:8px;background:${MER.verdeClaro};color:${MER.verde};display:grid;place-items:center;flex:none;font-size:15px">✦</div><div style="max-width:82%"><div style="background:#faf8f5;border:1px solid var(--line);padding:10px 14px;border-radius:4px 14px 14px 14px;font-size:13px;line-height:1.6;white-space:pre-wrap">${escapeHtml(m.content).replace(/\*\*(.+?)\*\*/g,'<b>$1</b>')}</div><div style="margin-top:5px"><button class="btn btn-ghost btn-sm" style="font-size:11px;padding:3px 9px;color:${MER.verde}" onclick="exportarRespuestaPDF(${i})" title="Descargar esta respuesta como informe PDF">⬇️ Exportar PDF</button></div></div></div>`;
   }).join('');
   const thinking = pensando ? `<div style="display:flex;gap:10px;margin-bottom:12px"><div style="width:28px;height:28px;border-radius:8px;background:${MER.verdeClaro};color:${MER.verde};display:grid;place-items:center;flex:none;font-size:15px">✦</div><div style="background:#faf8f5;border:1px solid var(--line);padding:12px 16px;border-radius:4px 14px 14px 14px"><span class="ia-dot"></span><span class="ia-dot"></span><span class="ia-dot"></span></div></div>` : '';
   cont.innerHTML = burbujas + thinking;
@@ -7823,6 +8360,27 @@ function preguntaRapidaIA(q){
   const input = document.getElementById('ia_input');
   if(input){ input.value = q; enviarMensajeIA(); }
 }
+function menuCatIA(ci, ev){
+  if(ev){ ev.stopPropagation(); }
+  cerrarMenuCatIA();
+  const cat = (typeof categoriasIAGlobal!=='undefined' ? categoriasIAGlobal : window._categoriasIA)[ci];
+  if(!cat) return;
+  const pop = document.createElement('div');
+  pop.id = 'ia_pop';
+  pop.style.cssText = 'position:fixed;z-index:9999;background:#fff;border:1px solid var(--line);border-radius:10px;box-shadow:0 8px 28px rgba(0,0,0,.16);padding:6px;max-width:340px;width:max-content';
+  pop.innerHTML = `<div style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:.6px;padding:4px 8px 6px">${cat.icon} ${cat.titulo}</div>` +
+    cat.preguntas.map(q=>`<button class="btn btn-ghost btn-sm" style="display:block;width:100%;text-align:left;font-size:12px;padding:8px 10px;line-height:1.35;white-space:normal" onclick="cerrarMenuCatIA();preguntaRapidaIA('${q.replace(/'/g,"\\'")}')">${q}</button>`).join('');
+  document.body.appendChild(pop);
+  const r = ev.currentTarget.getBoundingClientRect();
+  let top = r.top - pop.offsetHeight - 8;
+  if(top < 8) top = r.bottom + 8; // si no cabe arriba, va abajo
+  let left = r.left;
+  if(left + pop.offsetWidth > window.innerWidth - 8) left = window.innerWidth - pop.offsetWidth - 8;
+  pop.style.top = top + 'px';
+  pop.style.left = Math.max(8,left) + 'px';
+  setTimeout(()=>document.addEventListener('click', cerrarMenuCatIA, {once:true}), 10);
+}
+function cerrarMenuCatIA(){ const p=document.getElementById('ia_pop'); if(p) p.remove(); }
 function toggleCatIA(ci){
   const body = document.getElementById('catbody-'+ci);
   const arrow = document.getElementById('catarrow-'+ci);
@@ -7854,7 +8412,7 @@ function abrirConfigIA(){
 function renderAsistenteIA(data){
   state.dashEjecutivo = data;
   const tieneKey = modoOnline();
-  const categoriasIA = [
+  const categoriasIA = window._categoriasIA = [
     { titulo:'Panorama general', icon:'📊', preguntas:[
       'Dame un resumen ejecutivo de la situación actual del sistema',
       '¿Cuáles son los 3 riesgos más urgentes ahora mismo?',
@@ -7929,7 +8487,13 @@ function renderAsistenteIA(data){
               </div>
             </div>` : ''}
         </div>
-        <div style="flex:none;border-top:1px solid var(--line);padding:12px 16px;background:#fff">
+        <div style="flex:none;border-top:1px solid var(--line);background:#fff">
+          <div id="ia_quickbar" style="padding:8px 16px 0;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+            <span style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:.6px;margin-right:2px">Preguntas rápidas:</span>
+            ${categoriasIA.map((cat,ci)=>`<button class="btn btn-ghost btn-sm" style="font-size:11px;padding:4px 10px;border:1px solid var(--line)" onclick="menuCatIA(${ci}, event)">${cat.icon} ${cat.titulo} ▾</button>`).join('')}
+          </div>
+        </div>
+        <div style="flex:none;padding:10px 16px 12px;background:#fff">
           <div style="display:flex;gap:10px;align-items:flex-end">
             <textarea id="ia_input" rows="1" placeholder="Escribe tu pregunta..." style="flex:1;resize:none;border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-family:inherit;font-size:13px;max-height:120px" oninput="this.style.height='auto';this.style.height=Math.min(this.scrollHeight,120)+'px'" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();enviarMensajeIA();}"></textarea>
             <button class="btn btn-primary" onclick="enviarMensajeIA()" style="background:${MER.verde};border-color:${MER.verde};padding:10px 16px">Enviar</button>
@@ -8075,6 +8639,224 @@ function drawComparativaCharts(data){
     });
   }
 }
+
+// ============================================================
+//  GESTIÓN DE RIESGOS — Matriz 5×5 derivada de auditorías reales
+// ============================================================
+
+// Deriva la probabilidad (1-5) desde el cumplimiento del RF.
+// Menor cumplimiento => mayor probabilidad de materialización.
+function probDesdeReglas(cumplimiento){
+  const c = Number(cumplimiento);
+  if(isNaN(c)) return 3;
+  if(c >= 0.90) return 1;   // Raro
+  if(c >= 0.80) return 2;   // Improbable
+  if(c >= 0.70) return 3;   // Posible
+  if(c >= 0.50) return 4;   // Probable
+  return 5;                 // Casi seguro
+}
+// Deriva la consecuencia (1-5). Todos los RF son eventos top potencialmente
+// fatales => base alta (4), elevada a 5 si hay peor caso muy bajo (hallazgos críticos).
+function consDesdeRF(rf){
+  const peor = Number(rf.peor_cumplimiento);
+  if(!isNaN(peor) && peor < 0.5) return 5; // Catastrófica
+  return 4;                                 // Mayor (fatalidad potencial)
+}
+const PROB_LABELS = ['', 'Raro', 'Improbable', 'Posible', 'Probable', 'Casi seguro'];
+const CONS_LABELS = ['', 'Insignificante', 'Menor', 'Moderada', 'Mayor', 'Catastrófica'];
+
+// Color de celda según nivel de riesgo (P×C)
+function colorRiesgo(nivel){
+  if(nivel >= 20) return {bg:'#DC2626', txt:'#fff', label:'Crítico'};
+  if(nivel >= 12) return {bg:'#E8843C', txt:'#fff', label:'Alto'};
+  if(nivel >= 6)  return {bg:'#D97706', txt:'#fff', label:'Medio'};
+  if(nivel >= 3)  return {bg:'#EBC944', txt:'#3a2400', label:'Bajo'};
+  return {bg:'#1E7A63', txt:'#fff', label:'Mínimo'};
+}
+
+// Construye los riesgos a partir de los datos reales (rfGlobal)
+function construirRiesgos(data){
+  const rfs = (data.rfGlobal||[]).filter(r=>(r.veces_aplicable||0)>0);
+  return rfs.map((r,i)=>{
+    const cat = RF_CATALOGO[r.codigo_rf] || {};
+    const prob = probDesdeReglas(r.cumplimiento_promedio);
+    const cons = consDesdeRF(r);
+    const nivel = prob*cons;
+    const numCC = (cat.controles||[]).length;
+    const numCrit = (cat.controles||[]).filter(c=>(c.tipo||'').toLowerCase().startsWith('prevent')).length;
+    return {
+      id: 'R-'+String(i+1).padStart(2,'0'),
+      rf: r.codigo_rf,
+      nombre: cat.nombre || r.codigo_rf,
+      eventoTop: cat.eventoTop || '',
+      cumplimiento: Number(r.cumplimiento_promedio)||0,
+      peor: Number(r.peor_cumplimiento)||0,
+      aplicable: r.veces_aplicable||0,
+      prob, cons, nivel,
+      numCC, numCrit,
+      meta: colorRiesgo(nivel),
+    };
+  }).sort((a,b)=>b.nivel-a.nivel);
+}
+
+function renderGestionRiesgos(data){
+  state.dashEjecutivo = data;
+  const riesgos = construirRiesgos(data);
+  window._riesgosActuales = riesgos;
+  if(riesgos.length===0){
+    return `<div class="page"><div class="card"><div class="card-b"><div class="empty" style="padding:40px;text-align:center;color:var(--text-3)"><h4>Sin datos para construir la matriz</h4><p>Aún no hay seguimientos RF guardados. Realiza auditorías para alimentar la gestión de riesgos.</p></div></div></div></div>`;
+  }
+  // Construir grilla 5×5: contar riesgos por celda (prob fila, cons columna)
+  const celdas = {};
+  riesgos.forEach(r=>{ const k=r.prob+'_'+r.cons; (celdas[k]=celdas[k]||[]).push(r); });
+
+  // Filas de P5 (arriba) a P1 (abajo), columnas C1..C5
+  let grid = '';
+  for(let p=5;p>=1;p--){
+    let fila = `<div style="display:flex;align-items:center;gap:6px">
+      <div style="width:74px;font-size:10px;color:var(--text-3);text-align:right;padding-right:4px;line-height:1.1">P${p}<br><span style="font-size:8px">${PROB_LABELS[p]}</span></div>`;
+    for(let c=1;c<=5;c++){
+      const nivel=p*c; const meta=colorRiesgo(nivel);
+      const lista=celdas[p+'_'+c]||[];
+      const op = lista.length? '1' : '0.18';
+      fila += `<div title="P${p}×C${c} = ${nivel} · ${meta.label}" style="flex:1;aspect-ratio:1.4;background:${meta.bg};opacity:${op};border-radius:8px;display:grid;place-items:center;color:${meta.txt};font-weight:800;font-family:Archivo;font-size:18px;cursor:${lista.length?'pointer':'default'};position:relative" ${lista.length?`onclick="verRiesgosCelda(${p},${c})"`:''}>
+        ${lista.length? lista.length : ''}
+      </div>`;
+    }
+    grid += fila + '</div>';
+  }
+  // Etiquetas de consecuencia (columnas)
+  let colLabels = '<div style="display:flex;gap:6px;margin-top:6px"><div style="width:74px"></div>';
+  for(let c=1;c<=5;c++) colLabels += `<div style="flex:1;text-align:center;font-size:10px;color:var(--text-3);line-height:1.1">C${c}<br><span style="font-size:8px">${CONS_LABELS[c]}</span></div>`;
+  colLabels += '</div>';
+
+  const criticos = riesgos.filter(r=>r.nivel>=20).length;
+  const altos = riesgos.filter(r=>r.nivel>=12&&r.nivel<20).length;
+
+  return `
+    <div class="page">
+      <div style="display:grid;grid-template-columns:1.1fr 1fr;gap:14px;margin-bottom:14px" class="mer-grid-main">
+        <div class="card">
+          <div class="card-h">
+            <div><div style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:.8px">Matriz 5×5 · Minería</div><h3 style="margin-top:2px">Probabilidad × Consecuencia</h3></div>
+            <button class="btn btn-primary btn-sm" style="background:${MER.verde};border-color:${MER.verde}" onclick="analizarRiesgosIA()">✦ Analizar con IA</button>
+          </div>
+          <div class="card-b">
+            ${grid}
+            ${colLabels}
+            <div style="display:flex;gap:14px;margin-top:14px;flex-wrap:wrap;font-size:10px;color:var(--text-3)">
+              ${[[20,'Crítico'],[12,'Alto'],[6,'Medio'],[3,'Bajo'],[1,'Mínimo']].map(([n,l])=>{const m=colorRiesgo(n);return `<span style="display:flex;align-items:center;gap:4px"><span style="width:12px;height:12px;border-radius:3px;background:${m.bg}"></span>${l}</span>`;}).join('')}
+            </div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-h"><div><div style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:.8px">Registro de riesgos</div><h3 style="margin-top:2px">${riesgos.length} riesgos activos</h3></div>
+            <div style="font-size:11px;color:var(--text-3)">${criticos} críticos · ${altos} altos</div>
+          </div>
+          <div class="card-b" style="max-height:440px;overflow-y:auto">
+            ${riesgos.map(r=>`
+              <div onclick="abrirRiesgo('${r.id}')" style="border:1px solid var(--line);border-radius:10px;padding:12px;margin-bottom:8px;cursor:pointer">
+                <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+                  <div style="font-size:13px;font-weight:700">${escapeHtml(r.nombre)}</div>
+                  <span style="font-size:10px;font-weight:800;padding:2px 9px;border-radius:10px;background:${r.meta.bg};color:${r.meta.txt};white-space:nowrap">${r.meta.label} · ${r.nivel}</span>
+                </div>
+                <div style="font-size:11px;color:var(--text-3);margin-top:3px">${r.id} · ${r.rf} · ${r.numCC} controles (${r.numCrit} preventivos)</div>
+                <div style="display:flex;gap:10px;margin-top:7px;font-size:10px;color:var(--text-3)">
+                  <span>Cumplimiento: <b style="color:${r.cumplimiento>=0.9?'#1E7A63':r.cumplimiento>=0.7?'#D97706':'#DC2626'}">${(r.cumplimiento*100).toFixed(0)}%</b></span>
+                  <span>P${r.prob} · ${PROB_LABELS[r.prob]}</span>
+                  <span>C${r.cons} · ${CONS_LABELS[r.cons]}</span>
+                </div>
+              </div>`).join('')}
+          </div>
+        </div>
+      </div>
+      <div class="card" id="riesgo_ia_box" style="display:none">
+        <div class="card-h"><div style="display:flex;align-items:center;gap:8px"><div style="width:26px;height:26px;border-radius:8px;background:${MER.verde};color:#fff;display:grid;place-items:center">✦</div><h3 style="margin:0">Análisis de riesgos por IA</h3></div></div>
+        <div class="card-b" id="riesgo_ia_body" style="font-size:13px;line-height:1.7;white-space:pre-wrap"></div>
+      </div>
+    </div>`;
+}
+
+function verRiesgosCelda(p,c){
+  const lista=(window._riesgosActuales||[]).filter(r=>r.prob===p&&r.cons===c);
+  if(!lista.length) return;
+  const body = lista.map(r=>`<div style="border-bottom:1px solid var(--line);padding:8px 0">
+    <b>${escapeHtml(r.nombre)}</b> <span style="color:var(--text-3)">(${r.rf})</span><br>
+    <span style="font-size:12px;color:var(--text-3)">Nivel ${r.nivel} · ${r.meta.label} · cumplimiento ${(r.cumplimiento*100).toFixed(0)}%</span>
+  </div>`).join('');
+  openModal(`Riesgos en P${p}×C${c}`, body, `<button class="btn btn-ghost" onclick="closeModal()">Cerrar</button>`);
+}
+
+function abrirRiesgo(id){
+  const r=(window._riesgosActuales||[]).find(x=>x.id===id);
+  if(!r) return;
+  const body = `
+    <div style="font-size:13px;line-height:1.6">
+      <div style="display:flex;gap:6px;margin-bottom:10px">
+        <span style="font-size:10px;font-weight:800;padding:2px 9px;border-radius:10px;background:${r.meta.bg};color:${r.meta.txt}">${r.meta.label} · nivel ${r.nivel}</span>
+        <span style="font-size:10px;font-weight:700;padding:2px 9px;border-radius:10px;background:#faf8f5;color:var(--text-3)">${r.rf}</span>
+      </div>
+      <div style="font-size:12px;color:var(--text-3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px">Evento top</div>
+      <div style="margin-bottom:10px">${escapeHtml(r.eventoTop||r.nombre)}</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+        <div style="background:#faf8f5;border-radius:8px;padding:10px"><div style="font-size:11px;color:var(--text-3)">Probabilidad</div><b>P${r.prob} · ${PROB_LABELS[r.prob]}</b><div style="font-size:10px;color:var(--text-3)">cumplimiento ${(r.cumplimiento*100).toFixed(0)}%</div></div>
+        <div style="background:#faf8f5;border-radius:8px;padding:10px"><div style="font-size:11px;color:var(--text-3)">Consecuencia</div><b>C${r.cons} · ${CONS_LABELS[r.cons]}</b><div style="font-size:10px;color:var(--text-3)">peor caso ${(r.peor*100).toFixed(0)}%</div></div>
+      </div>
+      <div style="font-size:12px;color:var(--text-3)">Controles críticos: <b>${r.numCC}</b> (${r.numCrit} preventivos) · Aplicable en ${r.aplicable} auditoría(s)</div>
+      <div style="margin-top:12px;padding:10px 12px;background:#f3f9f6;border-radius:8px;font-size:12px;color:#1E7A63">
+        La posición en la matriz se deriva del cumplimiento real de los controles del ${r.rf}. Mejorar el cumplimiento baja la probabilidad y reduce el nivel de riesgo.
+      </div>
+    </div>`;
+  openModal(`${r.nombre}`, body, `<button class="btn btn-primary" style="background:${MER.verde};border-color:${MER.verde}" onclick="closeModal();analizarRiesgoUnoIA('${r.id}')">✦ Analizar este riesgo</button><button class="btn btn-ghost" onclick="closeModal()">Cerrar</button>`);
+}
+
+async function analizarRiesgosIA(){
+  const box=document.getElementById('riesgo_ia_box');
+  const body=document.getElementById('riesgo_ia_body');
+  if(!box||!body) return;
+  box.style.display='block';
+  body.innerHTML='<span class="ia-dot"></span><span class="ia-dot"></span><span class="ia-dot"></span> Analizando la matriz de riesgos…';
+  box.scrollIntoView({behavior:'smooth', block:'start'});
+  const riesgos=(window._riesgosActuales||[]).map(r=>({rf:r.rf, nombre:r.nombre, nivel:r.nivel, clase:r.meta.label, prob:r.prob, cons:r.cons, cumplimiento:+(r.cumplimiento*100).toFixed(1), peor:+(r.peor*100).toFixed(1), controles:r.numCC}));
+  const prompt = `Eres un experto en gestión de riesgos de seguridad minera. Analiza esta matriz 5×5 de riesgos de fatalidad derivada de auditorías reales. Cada riesgo tiene: nivel (probabilidad×consecuencia, 1-25), clase, % de cumplimiento de sus controles, y peor caso.\n\nMATRIZ DE RIESGOS (JSON):\n${JSON.stringify(riesgos)}\n\nEntrega un reporte ejecutivo en español con: (1) los 3-5 riesgos prioritarios y por qué, (2) patrones que observes (ej. controles débiles recurrentes), (3) recomendaciones concretas de mitigación ordenadas por impacto. Usa los códigos RF. Máximo ~280 palabras. No menciones mandantes específicos.`;
+  try {
+    const txt = await llamarIASimple(prompt);
+    body.textContent = txt;
+  } catch(e){
+    body.textContent = '⚠️ No se pudo generar el análisis: '+e.message;
+  }
+}
+
+async function analizarRiesgoUnoIA(id){
+  const r=(window._riesgosActuales||[]).find(x=>x.id===id);
+  if(!r) return;
+  const box=document.getElementById('riesgo_ia_box');
+  const body=document.getElementById('riesgo_ia_body');
+  if(box) box.style.display='block';
+  if(body){ body.innerHTML='<span class="ia-dot"></span><span class="ia-dot"></span><span class="ia-dot"></span> Analizando '+r.rf+'…'; box.scrollIntoView({behavior:'smooth'}); }
+  const prompt = `Eres un experto en gestión de riesgos de seguridad minera. Analiza este riesgo de fatalidad específico y entrega un plan de mitigación.\n\nRIESGO: ${r.rf} — ${r.nombre}\nEvento top: ${r.eventoTop}\nNivel: ${r.nivel}/25 (${r.meta.label})\nProbabilidad: P${r.prob} (${PROB_LABELS[r.prob]}) · Consecuencia: C${r.cons} (${CONS_LABELS[r.cons]})\nCumplimiento de controles: ${(r.cumplimiento*100).toFixed(1)}% · Peor caso: ${(r.peor*100).toFixed(1)}%\nControles críticos: ${r.numCC} (${r.numCrit} preventivos)\n\nEntrega en español: (1) interpretación del nivel de riesgo, (2) por qué el cumplimiento actual lo posiciona ahí, (3) 3-4 acciones concretas para reducir la probabilidad. Máximo ~200 palabras.`;
+  try {
+    const txt=await llamarIASimple(prompt);
+    if(body) body.textContent=txt;
+  } catch(e){ if(body) body.textContent='⚠️ '+e.message; }
+}
+
+// Helper IA reutilizable (usa la Edge Function con sesión)
+async function llamarIASimple(prompt){
+  if(!modoOnline()) throw new Error('Requiere conexión a Supabase');
+  let token;
+  try { const { data } = await sb.auth.getSession(); token = data?.session?.access_token; } catch(e){}
+  if(!token) throw new Error('Sesión no encontrada. Inicia sesión.');
+  const resp = await fetch(`${SUPABASE_URL}/functions/v1/asistente-ia`, {
+    method:'POST',
+    headers:{'content-type':'application/json','authorization':`Bearer ${token}`,'apikey':SUPABASE_KEY},
+    body: JSON.stringify({ system:'Eres un analista experto en gestión de riesgos de seguridad minera. Respondes en español, conciso y accionable.', messages:[{role:'user',content:prompt}], max_tokens:1024 })
+  });
+  const data = await resp.json();
+  if(!resp.ok) throw new Error(data.error || ('Error '+resp.status));
+  return data.texto || '(sin respuesta)';
+}
+
 
 // ---------- PROYECCIÓN DE TENDENCIAS ----------
 function regresionLineal(ys){
@@ -8488,6 +9270,7 @@ function navigateEjecutivo(view){
     mapacalor: ['Mapa de Calor RF', 'Cumplimiento por Riesgo de Fatalidad'],
     comparativa: ['Comparativa', 'Empresas y gerencias lado a lado'],
     proyeccion: ['Proyección', 'Tendencia proyectada del sistema'],
+    riesgos_mat: ['Gestión de Riesgos', 'Matriz 5×5 derivada de auditorías reales'],
   };
   const t = titulos[view] || [view, ''];
   const crumb = document.getElementById('crumb');

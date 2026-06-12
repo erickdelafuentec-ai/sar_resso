@@ -7754,46 +7754,49 @@ async function enviarMensajeIA(){
   if(!input) return;
   const texto = input.value.trim();
   if(!texto) return;
-  const key = getApiKeySAR();
-  if(!key){ abrirConfigIA(); return; }
+
+  // Requiere sesión iniciada (la Edge Function valida el token igualmente)
+  if(!modoOnline()){
+    _iaHistorial.push({role:'user', content:texto});
+    _iaHistorial.push({role:'assistant', content:'⚠️ El Asistente IA requiere conexión a Supabase. Verifica tu conexión e inicia sesión.'});
+    input.value=''; pintarChatIA(false); return;
+  }
 
   input.value = '';
   input.style.height = 'auto';
   _iaHistorial.push({role:'user', content:texto});
-  pintarChatIA(true); // con "pensando"
+  pintarChatIA(true);
 
   const sys = `Eres el analista de seguridad del Sistema SAR, una plataforma de auditoría RESSO V9 y seguimiento de los 24 Riesgos de Fatalidad (RF) para empresas contratistas en minería. Respondes en español, de forma ejecutiva, concreta y accionable. Usas EXCLUSIVAMENTE los datos del contexto JSON que se te entrega; si algo no está en los datos, dilo claramente en lugar de inventar. Cuando detectes riesgos (planes vencidos, RF bajo 70%, gerencias deficientes) priorízalos. Usa porcentajes con un decimal. No menciones nombres de mandantes específicos. Sé breve: máximo ~180 palabras salvo que pidan un informe.`;
 
   const contexto = construirContextoIA();
   const mensajes = _iaHistorial.map(m=>({role:m.role, content:m.content}));
-  // Inyectar contexto en el primer turno del usuario
   mensajes[0] = { role:'user', content:`DATOS ACTUALES DEL SISTEMA (JSON):\n${JSON.stringify(contexto)}\n\nPREGUNTA: ${_iaHistorial[0].content}` };
 
   try {
-    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+    // Token de la sesión activa para autenticar contra la Edge Function
+    let token = '';
+    try { const { data } = await sb.auth.getSession(); token = data?.session?.access_token || ''; } catch(e){}
+    if(!token) throw new Error('Sesión no encontrada. Vuelve a iniciar sesión.');
+
+    const resp = await fetch(`${SUPABASE_URL}/functions/v1/asistente-ia`, {
       method:'POST',
       headers:{
         'content-type':'application/json',
-        'x-api-key':key,
-        'anthropic-version':'2023-06-01',
-        'anthropic-dangerous-direct-browser-access':'true'
+        'authorization':`Bearer ${token}`,
+        'apikey': SUPABASE_KEY
       },
-      body: JSON.stringify({ model:'claude-sonnet-4-6', max_tokens:1024, system:sys, messages:mensajes })
+      body: JSON.stringify({ system:sys, messages:mensajes, max_tokens:1024 })
     });
-    if(!resp.ok){
-      const err = await resp.text();
-      throw new Error(resp.status + ' — ' + err.slice(0,200));
-    }
     const data = await resp.json();
-    const txt = (data.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('\n').trim() || '(sin respuesta)';
-    _iaHistorial.push({role:'assistant', content:txt});
+    if(!resp.ok){ throw new Error(data.error || (resp.status+'')); }
+    _iaHistorial.push({role:'assistant', content: data.texto || '(sin respuesta)'});
   } catch(e){
     console.error('[SAR][IA]', e);
-    _iaHistorial.push({role:'assistant', content:'⚠️ No se pudo conectar con la IA: '+e.message+'\n\nVerifica tu API key en ⚙️ (esquina superior) y tu conexión.'});
+    _iaHistorial.push({role:'assistant', content:'⚠️ No se pudo conectar con la IA: '+e.message+'\n\nSi el problema persiste, avisa al administrador para revisar la Edge Function.'});
   }
   pintarChatIA(false);
 }
-
 function pintarChatIA(pensando){
   const cont = document.getElementById('ia_chat');
   if(!cont) return;
@@ -7832,7 +7835,7 @@ function abrirConfigIA(){
 
 function renderAsistenteIA(data){
   state.dashEjecutivo = data;
-  const tieneKey = !!getApiKeySAR();
+  const tieneKey = modoOnline();
   const sugerencias = [
     '¿Cuáles son los 3 riesgos más urgentes del sistema ahora?',
     '¿Qué gerencia necesita más atención y por qué?',
@@ -7852,8 +7855,7 @@ function renderAsistenteIA(data){
             </div>
           </div>
           <div style="display:flex;gap:8px;align-items:center">
-            <span style="font-size:11px;padding:3px 9px;border-radius:10px;background:${tieneKey?MER.verdeClaro:'#fdecec'};color:${tieneKey?MER.verde:MER.rojo};font-weight:600">${tieneKey?'● Conectado':'○ Sin API key'}</span>
-            <button class="btn btn-ghost btn-sm" onclick="abrirConfigIA()">⚙️</button>
+            <span style="font-size:11px;padding:3px 9px;border-radius:10px;background:${tieneKey?MER.verdeClaro:'#fdecec'};color:${tieneKey?MER.verde:MER.rojo};font-weight:600">${tieneKey?'● IA disponible':'○ Sin conexión'}</span>
             <button class="btn btn-ghost btn-sm" onclick="_iaHistorial=[];pintarChatIA(false)" title="Limpiar conversación">🗑️</button>
           </div>
         </div>

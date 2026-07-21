@@ -4346,7 +4346,7 @@ function renderDashboard(){
   const docPct = r.resDocumental*2*100;
   const terrPct = r.resTerreno*2*100;
   const planCumpl = planStats.total>0 ? Math.round(planStats.avgPct) : 0;
-  const hallCrit = state.auditoria.hallazgos.filter(h=>h.nivel==='1').length;
+  const hallCrit = state.auditoria.hallazgos.filter(h => String(h.nivel) === '1').length;
   const hallTotal = state.auditoria.hallazgos.length;
   const hallPend = state.auditoria.plan.filter(p=>p.estado!=='Cerrado').length;
 
@@ -4975,8 +4975,8 @@ function setNivelTerr(secCod, preCod, val){
 // ---------------- HALLAZGOS ----------------
 function renderHallazgos(){
   const h = state.auditoria.hallazgos;
-  const n1 = h.filter(x=>x.nivel==='1');
-  const n2 = h.filter(x=>x.nivel==='2');
+  const n1 = h.filter(x => String(x.nivel) === '1');
+  const n2 = h.filter(x => String(x.nivel) === '2');
   return `
     <div class="page">
       <div class="card" style="margin-bottom:14px">
@@ -5036,7 +5036,7 @@ function renderTablaHallazgos(arr){
         const numFotos = (_fotosCache[h.supabase_id || h.id] || []).length;
         return `<tr>
         <td><b>${h.numero||''}</b></td>
-        <td><span class="tag ${h.nivel==='1'?'bad':'warn'}">${h.tipo||''}</span></td>
+        <td><span class="tag ${String(h.nivel)==='1'?'bad':'warn'}">${h.tipo||''}</span></td>
         <td>${h.area||''}</td>
         <td style="max-width:240px">${h.descripcion||''}</td>
         <td>${h.responsable||''}</td>
@@ -6203,6 +6203,31 @@ function procesarExcelRESSO(wb){
   let nivel1Count = 0, nivel2Count = 0;
   for(let c=2; c<=7; c++){ nivel1Count += gn(37, c); }
   for(let c=10; c<=13; c++){ nivel2Count += gn(37, c); }
+
+  // Leer descripciones reales de los hallazgos (fila 42 para N1, filas 45-46 para N2)
+  const hallazgosDetalle = [];
+  const tiposN1 = [
+    {col: 2, tipo: 'Terreno'}, {col: 6, tipo: 'Liderazgo'}, {col: 10, tipo: 'Controles Críticos'}
+  ];
+  for(const t of tiposN1){
+    for(let r = 42; r <= 43; r++){
+      const desc = g(r, t.col);
+      if(desc && desc.length > 5){
+        hallazgosDetalle.push({nivel: 1, tipo: t.tipo, descripcion: desc, descuento: 0.02});
+      }
+    }
+  }
+  const tiposN2 = [
+    {col: 2, tipo: 'Terreno'}, {col: 6, tipo: 'Conductas'}, {col: 10, tipo: 'Aprendizaje'}
+  ];
+  for(const t of tiposN2){
+    for(let r = 45; r <= 46; r++){
+      const desc = g(r, t.col);
+      if(desc && desc.length > 5){
+        hallazgosDetalle.push({nivel: 2, tipo: t.tipo, descripcion: desc, descuento: 0.005});
+      }
+    }
+  }
   const plan = [];
   let hojaPlan = null;
   for(const sn of wb.SheetNames){
@@ -6225,7 +6250,7 @@ function procesarExcelRESSO(wb){
   }
   const esperadoSinBonif = resDoc + resTerr - descuento;
   const bonifISO = Math.abs(resFinal - (esperadoSinBonif + 0.05)) < 0.005;
-  return {tipo: 'resso', antecedentes: ant, resultados: {resDocumental: resDoc, resTerreno: resTerr, descuento, resFinal, bonificacionISO: bonifISO}, seccionesDoc, seccionesTerr, hallazgosN1: nivel1Count, hallazgosN2: nivel2Count, plan};
+  return {tipo: 'resso', antecedentes: ant, resultados: {resDocumental: resDoc, resTerreno: resTerr, descuento, resFinal, bonificacionISO: bonifISO}, seccionesDoc, seccionesTerr, hallazgosN1: nivel1Count, hallazgosN2: nivel2Count, hallazgosDetalle, plan};
 }
 
 function mostrarPreviewRESSO(datos, fileName){
@@ -6282,8 +6307,27 @@ function guardarImportacionRESSO(jsonStr){
     aud.seccionesDocPrecargadas = datos.seccionesDoc;
     aud.seccionesTerrPrecargadas = datos.seccionesTerr;
     aud.hallazgos = [];
-    for(let i=0; i<datos.hallazgosN1; i++) aud.hallazgos.push({id:'h-imp-n1-'+i, nivel:1, tipo:'Terreno', descripcion:'Hallazgo N1 importado', descuento:0.02});
-    for(let i=0; i<datos.hallazgosN2; i++) aud.hallazgos.push({id:'h-imp-n2-'+i, nivel:2, tipo:'Terreno', descripcion:'Hallazgo N2 importado', descuento:0.005});
+    // Usar hallazgos con descripciones reales si existen
+    if(datos.hallazgosDetalle && datos.hallazgosDetalle.length > 0){
+      datos.hallazgosDetalle.forEach((h, i) => {
+        aud.hallazgos.push({
+          id: 'h-imp-' + i,
+          numero: i + 1,
+          nivel: h.nivel,
+          tipo: h.tipo,
+          descripcion: h.descripcion,
+          descuento: h.descuento,
+          estado: 'Abierto',
+          responsable: '',
+          fechaCompromiso: '',
+          area: '',
+        });
+      });
+    } else {
+      // Fallback: si no hay descripciones, usar el conteo
+      for(let i=0; i<datos.hallazgosN1; i++) aud.hallazgos.push({id:'h-imp-n1-'+i, numero: i+1, nivel:1, tipo:'Terreno', descripcion:'Hallazgo N1 importado', descuento:0.02, estado:'Abierto'});
+      for(let i=0; i<datos.hallazgosN2; i++) aud.hallazgos.push({id:'h-imp-n2-'+i, numero: datos.hallazgosN1+i+1, nivel:2, tipo:'Terreno', descripcion:'Hallazgo N2 importado', descuento:0.005, estado:'Abierto'});
+    }
     aud.plan = datos.plan || [];
     aud.id = 'aud-imp-' + Date.now().toString(36);
     aud.creada = new Date().toISOString();

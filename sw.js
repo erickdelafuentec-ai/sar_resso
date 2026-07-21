@@ -1,6 +1,6 @@
 // SAR·RESSO V9 — Service Worker
 // Versión del caché — cambiar este valor fuerza actualización
-const CACHE_VERSION = 'sarresso-v9-4';
+const CACHE_VERSION = 'sarresso-v9-5';
 const CACHE_STATIC  = `${CACHE_VERSION}-static`;
 const CACHE_DYNAMIC = `${CACHE_VERSION}-dynamic`;
 

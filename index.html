@@ -1376,12 +1376,16 @@ async function sb_guardarAuditoria(aud){
       if((aud.plan||[]).length){
         const pRows = aud.plan.map(p => ({
           auditoria_id: aud.supabase_id,
-          descripcion: p.descripcion || '',
+          descripcion: p.descripcion || p.hallazgo || '',
           responsable: p.responsable || null,
-          fecha_compromiso: p.fechaCompromiso || null,
+          fecha_compromiso: (p.fechaCompromiso && /^\d{4}-\d{2}-\d{2}/.test(String(p.fechaCompromiso))) ? String(p.fechaCompromiso).slice(0,10) : null,
           estado: p.estado || 'Pendiente',
         }));
-        await sb.from('auditoria_plan').insert(pRows);
+        const { error: planErr } = await sb.from('auditoria_plan').insert(pRows);
+        if(planErr){
+          console.error('[SAR] Error insertando plan:', planErr);
+          toast('⚠️ Auditoría guardada, pero el plan no se pudo subir: '+(planErr.message||''), 'warn');
+        }
       }
     }
     

@@ -6144,13 +6144,27 @@ function detectarTipoExcel(wb){
   return state.modulo === 'rf';
 }
 
+// Normaliza el rango de una hoja para que el array empiece en A1
+// (algunas hojas tienen !ref con origen en B2 u otro, lo que desplaza los índices)
+// raw:true + cellDates:true en XLSX.read → fechas como objetos Date (sin ambigüedad m/d vs d/m)
+function sheetToArrayA1(sheet){
+  try {
+    if(sheet && sheet['!ref']){
+      const rng = XLSX.utils.decode_range(sheet['!ref']);
+      rng.s.r = 0; rng.s.c = 0;
+      sheet['!ref'] = XLSX.utils.encode_range(rng);
+    }
+  } catch(e){}
+  return XLSX.utils.sheet_to_json(sheet, {header:1, defval:null, raw:true});
+}
+
 function procesarExcelRESSO(wb){
   let hoja = null;
   for(const sn of wb.SheetNames){
     if(sn.toUpperCase().includes('RESSO')){ hoja = wb.Sheets[sn]; break; }
   }
   if(!hoja) hoja = wb.Sheets[wb.SheetNames[0]];
-  const A = XLSX.utils.sheet_to_json(hoja, {header:1, defval:null, raw:false});
+  const A = sheetToArrayA1(hoja);
   const g = (r,c) => (A[r-1] && A[r-1][c-1] != null) ? String(A[r-1][c-1]).trim() : '';
   const gn = (r,c) => { const v = A[r-1] && A[r-1][c-1]; return (typeof v === 'number') ? v : parseFloat(v) || 0; };
   const gRaw = (r,c) => (A[r-1] && A[r-1][c-1] != null) ? A[r-1][c-1] : null;
@@ -6163,9 +6177,13 @@ function procesarExcelRESSO(wb){
     // Formato "2026-07-09 00:00:00" o "2026-07-09"
     const m = s.match(/(\d{4})-(\d{2})-(\d{2})/);
     if(m) return `${m[1]}-${m[2]}-${m[3]}`;
-    // Formato dd/mm/yyyy
-    const m2 = s.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
-    if(m2) return `${m2[3]}-${m2[2].padStart(2,'0')}-${m2[1].padStart(2,'0')}`;
+    // Formato XLSX.js m/d/yy o m/d/yyyy (ej. "8/7/26 0:00" = 2026-08-07)
+    const m3 = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
+    if(m3){
+      let y = m3[3];
+      if(y.length === 2) y = '20' + y;
+      return `${y}-${m3[1].padStart(2,'0')}-${m3[2].padStart(2,'0')}`;
+    }
     return s.slice(0,10);
   };
 
@@ -6299,8 +6317,9 @@ function procesarExcelRESSO(wb){
     if(sn.toLowerCase().includes('plan')){ hojaPlan = wb.Sheets[sn]; break; }
   }
   if(hojaPlan){
-    const P = XLSX.utils.sheet_to_json(hojaPlan, {header:1, defval:null, raw:false});
+    const P = sheetToArrayA1(hojaPlan);
     // Encabezados en fila 7, datos desde fila 8
+    let num = 0;
     for(let r=8; r<=P.length && r<200; r++){
       const row = P[r-1] || [];
       const item     = String(row[1]||'').trim();  // B: Item RESSO
@@ -6310,19 +6329,33 @@ function procesarExcelRESSO(wb){
       // Saltar filas vacías o encabezados repetidos
       if(hallazgo.length < 3 && accion.length < 3) continue;
       if(hallazgo.toLowerCase().includes('hallazgo detectado')) continue;
+      num++;
 
-      let desc = '';
-      if(item) desc = `[${item}] `;
-      if(hallazgo) desc += hallazgo;
-      if(accion) desc += (hallazgo ? '\n→ Acción: ' : 'Acción: ') + accion;
+      // Normalizar estado al formato que usa la app
+      const estRaw = String(row[8]||'').trim().toLowerCase();  // I: Estatus
+      let estado = 'Pendiente';
+      if(estRaw.includes('cerrad')) estado = 'Cerrado';
+      else if(estRaw.includes('proceso') || estRaw.includes('curso') || estRaw.includes('progres')) estado = 'En curso';
+
+      // % Cumplimiento desde col J de esta fila
+      const cumplRaw = String(row[9]||'').replace('%','').replace(',','.');
+      let cumpl = parseFloat(cumplRaw) || 0;
+      if(cumpl > 1) cumpl /= 100;
+
+      const hallazgoTxt = item ? `[${item}] ${hallazgo}` : hallazgo;
 
       plan.push({
         id: 'p-imp-'+r,
-        descripcion: desc.trim(),
+        numero: num,
+        // Campos que usa la vista del Plan de Acción:
+        hallazgo: hallazgoTxt || accion,
+        accionCorrectiva: accion,
+        // Campo legacy para compatibilidad:
+        descripcion: (hallazgoTxt + (accion ? ' → ' + accion : '')).trim(),
         responsable: respons,
         fechaCompromiso: parseFecha(row[7]),  // H: Fecha cierre
-        estado: String(row[8]||'Pendiente').trim(),  // I: Estatus
-        cumplimiento: gn(r, 10) || 0,  // J: % Cumplimiento
+        estado,
+        cumplimiento: cumpl,
       });
     }
   }
@@ -6460,18 +6493,36 @@ function guardarImportacionRESSO(jsonStr){
 function procesarExcelRF(wb){
   const idx = wb.Sheets['ÍNDICE'] || wb.Sheets['INDICE'];
   if(!idx) throw new Error('No se encontró la hoja "ÍNDICE" en el archivo');
-  const I = XLSX.utils.sheet_to_json(idx, {header:1, defval:null, raw:false});
+  const I = sheetToArrayA1(idx);
   const gi = (r,c) => {
     const v = (I[r-1] && I[r-1][c-1] != null) ? String(I[r-1][c-1]).trim() : '';
     // Limpiar valores tipo ":" o ": " que aparecen sin contenido real
     if(v === ':' || v === ': ' || v === '-') return '';
     return v;
   };
-  const ant = {
-    gerencia: gi(5, 6), superintendencia: gi(6, 6), empresa: gi(7, 6),
-    numContrato: gi(8, 6), responsable: gi(9, 6), cargo: gi(10, 6),
-    fechaAplicacion: gi(11, 6) || todayISO(),
+  // Normalizar fecha (maneja Date nativo, "2026-06-30 00:00:00", "m/d/yy")
+  const normFecha = (s) => {
+    if(!s) return todayISO();
+    if(s instanceof Date) return s.toISOString().slice(0,10);
+    const str = String(s).trim();
+    const m = str.match(/(\d{4})-(\d{2})-(\d{2})/);
+    if(m) return `${m[1]}-${m[2]}-${m[3]}`;
+    const m3 = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
+    if(m3){ let y=m3[3]; if(y.length===2) y='20'+y; return `${y}-${m3[1].padStart(2,'0')}-${m3[2].padStart(2,'0')}`; }
+    return str.slice(0,10);
   };
+  const giRaw = (r,c) => (I[r-1] && I[r-1][c-1] != null) ? I[r-1][c-1] : null;
+  const ant = {
+    gerencia: gi(5, 7), superintendencia: gi(6, 7), empresa: gi(7, 7),
+    numContrato: gi(8, 7), responsable: gi(9, 7), cargo: gi(10, 7),
+    fechaAplicacion: normFecha(giRaw(11, 7)),
+  };
+  // Fallback: algunas versiones tienen los datos en col 6
+  if(!ant.empresa){
+    ant.gerencia = gi(5, 6); ant.superintendencia = gi(6, 6); ant.empresa = gi(7, 6);
+    ant.numContrato = gi(8, 6); ant.responsable = gi(9, 6); ant.cargo = gi(10, 6);
+    ant.fechaAplicacion = normFecha(giRaw(11, 6));
+  }
   const rfsEstado = {};
   for(let r=15; r<=42; r++){
     const codigo = gi(r, 2);
@@ -6481,7 +6532,9 @@ function procesarExcelRF(wb){
     rfsEstado[codigo] = {
       aplica: aplica && aplica.toUpperCase().includes('APLICA') && !aplica.toUpperCase().includes('NO APLICA'),
       cumplimiento: parsePctImp(pct),
-      sponsor: gi(r, 11), dueno: gi(r, 12),
+      nombre: gi(r, 3),
+      sponsor: gi(r, 11),
+      dueno: '',
     };
   }
   const seguimientoPorRF = {};
@@ -6489,23 +6542,28 @@ function procesarExcelRF(wb){
     if(!sn.startsWith('RF ')) continue;
     const codigoRF = sn.replace(' ', '');
     const hoja = wb.Sheets[sn];
-    const D = XLSX.utils.sheet_to_json(hoja, {header:1, defval:null, raw:false});
+    const D = sheetToArrayA1(hoja);
     const requisitos = [];
+    // Extraer dueño del RF desde la primera fila de datos (col E = índice 4)
+    if(D[1] && D[1][4] && rfsEstado[codigoRF]){
+      rfsEstado[codigoRF].dueno = String(D[1][4]).trim();
+    }
     for(let r=2; r<=D.length; r++){
       const row = D[r-1];
       if(!row) continue;
-      const codigoFila = row[17];
+      const codigoFila = row[17];   // Col R: Código de Fila CC (ej. CCP1-R1-EV1)
       if(!codigoFila) continue;
       requisitos.push({
         codigoFila: String(codigoFila).trim(),
-        cumplimiento: parsePctImp(row[19]),
-        planTransitorio: String(row[20]||'').trim(),
-        respPlan: String(row[21]||'').trim(),
-        proyectoReduccion: String(row[22]||'').trim(),
-        respProyecto: String(row[23]||'').trim(),
-        fechaProgCierre: String(row[24]||'').trim(),
-        fechaFinalCierre: String(row[25]||'').trim(),
-        estatus: String(row[26]||'').trim(),
+        cumplimiento: parsePctImp(row[19]),     // Col T: % Cumplimiento Evidencia
+        planTransitorio: String(row[20]||'').trim(),   // Col U
+        respPlan: String(row[21]||'').trim(),          // Col V
+        proyectoReduccion: String(row[22]||'').trim(), // Col W
+        respProyecto: String(row[23]||'').trim(),      // Col X
+        fechaProgCierre: row[24] ? normFecha(row[24]) : '',   // Col Y
+        fechaFinalCierre: row[25] ? normFecha(row[25]) : '',  // Col Z
+        estatus: String(row[26]||'').trim(),           // Col AA
+        observaciones: String(row[27]||'').trim(),     // Col AB
       });
     }
     seguimientoPorRF[codigoRF] = requisitos;
@@ -6564,6 +6622,7 @@ function guardarImportacionRF(jsonStr){
     seg.totalAplicables = datos.totalAplicables;
     seg.totalNoAplicables = datos.totalNoAplicables;
     seg.id = 'rf-imp-' + Date.now().toString(36);
+    seg.creada = seg.creada || new Date().toISOString();
     seg.importadoDesde = 'Excel';
     seg.rfs = seg.rfs || {};
     for(const [codigo, est] of Object.entries(datos.rfsEstado)){
@@ -6580,6 +6639,26 @@ function guardarImportacionRF(jsonStr){
     try { localStorage.setItem('rf_current', JSON.stringify(seg)); } catch(e){}
     closeModal();
     toast(`Seguimiento RF importado: ${seg.antecedentes.empresa || '—'}`, 'ok');
+
+    // Mostrar los datos importados de inmediato
+    if(state.modulo === 'rf'){
+      navigateRF('riesgos');
+    } else {
+      // Cambiar automáticamente al módulo RF para ver lo importado
+      try { entrarModulo('rf'); navigateRF('riesgos'); } catch(e){ render(); }
+    }
+
+    // Sincronizar a Supabase en background para que otros usuarios lo vean
+    if(modoOnline() && typeof sb_guardarSeguimientoRF === 'function'){
+      sb_guardarSeguimientoRF(seg).then(result => {
+        if(result){
+          seg.supabase_id = result.id || seg.supabase_id;
+          try { localStorage.setItem('rf_current', JSON.stringify(seg)); } catch(e){}
+          try { localStorage.setItem('rf_history', JSON.stringify(state.historyRF)); } catch(e){}
+          toast('☁️ RF sincronizado a la nube', 'ok');
+        }
+      }).catch(e => console.warn('Error al subir RF importado:', e));
+    }
   } catch(e){
     console.error(e);
     toast('Error al guardar: '+e.message, 'bad');
@@ -6769,7 +6848,7 @@ async function procesarExcelParaComparar(file){
   prev.innerHTML = '<div style="padding:12px;font-size:13px;color:var(--text-2)">⏳ Procesando...</div>';
   try {
     const data = await file.arrayBuffer();
-    const wb = XLSX.read(data, {type:'array'});
+    const wb = XLSX.read(data, {type:'array', cellDates:true});
     const isRF = detectarTipoExcel(wb);
     const datos = isRF ? procesarExcelRF(wb) : procesarExcelRESSO(wb);
     state.compExcel = datos;
@@ -7473,6 +7552,16 @@ function abrirDetalleRF(codigo){
             <b>Evidencia:</b> ${escapeHtml(req.evidencia)}
           </div>
           <div style="font-size:10px;color:var(--text-3);margin-top:4px">Monitoreo: ${escapeHtml(req.monitoreo||'—')}</div>
+          ${segReq.estatus ? `<div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+            <span class="tag ${segReq.estatus.toLowerCase().includes('cerrado')?'ok':segReq.estatus.toLowerCase().includes('proceso')?'warn':''}" style="font-size:10px">${escapeHtml(segReq.estatus)}</span>
+            ${segReq.fechaProgCierre && segReq.fechaProgCierre !== todayISO() ? `<span style="font-size:10px;color:var(--text-3)">📅 Cierre: ${escapeHtml(segReq.fechaProgCierre)}</span>` : ''}
+          </div>` : ''}
+          ${segReq.planTransitorio ? `<div style="font-size:11px;color:var(--text-2);margin-top:6px;padding:7px 9px;background:#fff8ee;border-left:3px solid var(--warn);border-radius:4px;line-height:1.4">
+            <b>Plan transitorio:</b> ${escapeHtml(segReq.planTransitorio)}${segReq.respPlan ? ` · <i>${escapeHtml(segReq.respPlan)}</i>` : ''}
+          </div>` : ''}
+          ${segReq.proyectoReduccion ? `<div style="font-size:11px;color:var(--text-2);margin-top:6px;padding:7px 9px;background:#eef4ff;border-left:3px solid #2563eb;border-radius:4px;line-height:1.4">
+            <b>Proyecto reducción:</b> ${escapeHtml(segReq.proyectoReduccion)}${segReq.respProyecto ? ` · <i>${escapeHtml(segReq.respProyecto)}</i>` : ''}
+          </div>` : ''}
         </div>
       `;
     }).join('');

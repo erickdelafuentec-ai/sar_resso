@@ -1277,6 +1277,8 @@ async function sb_guardarAuditoria(aud){
         seccionesTerrPrecargadas: aud.seccionesTerrPrecargadas || null,
         documental: aud.documental || null,
         terreno: aud.terreno || null,
+        plan: (aud.plan && aud.plan.length) ? aud.plan : undefined,
+        observaciones: aud.observaciones || undefined,
       }
     };
     
@@ -1287,9 +1289,20 @@ async function sb_guardarAuditoria(aud){
       result = data;
       aud.supabase_id = data.id;
     } else {
-      const { data, error } = await sb.from('auditorias_resso').update(payload).eq('id', aud.supabase_id).select().single();
+      // En update NO sobrescribir creada_por (mantener al dueño original)
+      const updPayload = Object.assign({}, payload);
+      delete updPayload.creada_por;
+      const { data, error } = await sb.from('auditorias_resso').update(updPayload).eq('id', aud.supabase_id).select();
       if(error) throw error;
-      result = data;
+      result = (data && data[0]) || null;
+      if(!result){
+        // Sin permiso para editar la cabecera (auditoría de otro usuario) —
+        // leer el registro y continuar guardando hallazgos/plan (esos sí están permitidos)
+        const { data: rows } = await sb.from('auditorias_resso').select('*').eq('id', aud.supabase_id).limit(1);
+        result = rows && rows[0];
+        if(!result) throw new Error('Auditoría no encontrada en la nube');
+        console.warn('[SAR] Cabecera de otro usuario — se actualizan solo hallazgos y plan');
+      }
     }
     
     // Hallazgos: estrategia inteligente para preservar IDs (y por tanto fotos)
@@ -1398,33 +1411,43 @@ async function sb_cargarAuditorias(){
       sb.from('auditoria_plan').select('*').in('auditoria_id', ids),
     ]);
     
-    return auds.map(a => ({
-      id: 'aud-sb-'+a.id.slice(0,8),
-      supabase_id: a.id,
-      creada: a.creada,
-      antecedentes: {
-        nombreEECC: a.nombre_eecc, rut: a.rut, nombreContrato: a.nombre_contrato,
-        numContrato: a.num_contrato, gerencia: a.gerencia, adminEECC: a.admin_eecc,
-        correoEECC: a.correo_eecc, adminCodelco: a.admin_codelco, correoCodelco: a.correo_codelco,
-        categoria: a.categoria, auditor: a.auditor, correoAuditor: a.correo_auditor,
-        fechaAuditoria: a.fecha_auditoria,
-      },
-      resultados: {
-        resDocumental: Number(a.res_documental), resTerreno: Number(a.res_terreno),
-        descuento: Number(a.descuento), resFinal: Number(a.res_final),
-        bonificacionISO: a.bonificacion_iso, clasificacion: a.clasificacion,
-      },
-      hallazgos: (hallazgos||[]).filter(h=>h.auditoria_id===a.id).map(h=>({
+    return auds.map(a => {
+      const tablaHallazgos = (hallazgos||[]).filter(h=>h.auditoria_id===a.id).map(h=>({
         id: 'h-sb-'+h.id.slice(0,8), supabase_id: h.id, nivel:h.nivel, tipo:h.tipo, 
         descripcion:h.descripcion, descuento:Number(h.descuento)
-      })),
-      plan: (plan||[]).filter(p=>p.auditoria_id===a.id).map(p=>({
-        id: 'p-sb-'+p.id.slice(0,8), descripcion:p.descripcion, responsable:p.responsable,
-        fechaCompromiso:p.fecha_compromiso, estado:p.estado
-      })),
-      importadaDesde: a.importada_desde,
-      ...(a.metadata || {}),
-    }));
+      }));
+      const tablaPlan = (plan||[]).filter(p=>p.auditoria_id===a.id).map((p,i)=>({
+        id: 'p-sb-'+p.id.slice(0,8), numero: i+1,
+        descripcion: p.descripcion,
+        hallazgo: p.descripcion,
+        responsable: p.responsable,
+        fechaCompromiso: p.fecha_compromiso, estado: p.estado
+      }));
+      const obj = {
+        id: 'aud-sb-'+a.id.slice(0,8),
+        supabase_id: a.id,
+        creada: a.creada,
+        antecedentes: {
+          nombreEECC: a.nombre_eecc, rut: a.rut, nombreContrato: a.nombre_contrato,
+          numContrato: a.num_contrato, gerencia: a.gerencia, adminEECC: a.admin_eecc,
+          correoEECC: a.correo_eecc, adminCodelco: a.admin_codelco, correoCodelco: a.correo_codelco,
+          categoria: a.categoria, auditor: a.auditor, correoAuditor: a.correo_auditor,
+          fechaAuditoria: a.fecha_auditoria,
+        },
+        resultados: {
+          resDocumental: Number(a.res_documental), resTerreno: Number(a.res_terreno),
+          descuento: Number(a.descuento), resFinal: Number(a.res_final),
+          bonificacionISO: a.bonificacion_iso, clasificacion: a.clasificacion,
+        },
+        importadaDesde: a.importada_desde,
+        ...(a.metadata || {}),
+      };
+      // Los datos de metadata (plan rico con hallazgo/acción, hallazgos) tienen prioridad,
+      // pero si vienen vacíos o nulos, usar los de las tablas
+      if(!Array.isArray(obj.plan) || obj.plan.length === 0) obj.plan = tablaPlan;
+      if(!Array.isArray(obj.hallazgos) || obj.hallazgos.length === 0) obj.hallazgos = tablaHallazgos;
+      return obj;
+    });
   } catch(e){
     console.error('[SAR] Error cargando auditorías:', e);
     return [];
@@ -1478,9 +1501,18 @@ async function sb_guardarSeguimientoRF(seg){
       result = data;
       seg.supabase_id = data.id;
     } else {
-      const { data, error } = await sb.from('seguimientos_rf').update(payload).eq('id', seg.supabase_id).select().single();
+      // En update NO sobrescribir creada_por (mantener al dueño original)
+      const updPayload = Object.assign({}, payload);
+      delete updPayload.creada_por;
+      const { data, error } = await sb.from('seguimientos_rf').update(updPayload).eq('id', seg.supabase_id).select();
       if(error) throw error;
-      result = data;
+      result = (data && data[0]) || null;
+      if(!result){
+        const { data: rows } = await sb.from('seguimientos_rf').select('*').eq('id', seg.supabase_id).limit(1);
+        result = rows && rows[0];
+        if(!result) throw new Error('Seguimiento no encontrado en la nube');
+        console.warn('[SAR] Cabecera RF de otro usuario — se actualizan solo estados y requisitos');
+      }
     }
     
     // Estado de cada RF

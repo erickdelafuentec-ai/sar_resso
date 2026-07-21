@@ -6153,81 +6153,146 @@ function procesarExcelRESSO(wb){
   const A = XLSX.utils.sheet_to_json(hoja, {header:1, defval:null, raw:false});
   const g = (r,c) => (A[r-1] && A[r-1][c-1] != null) ? String(A[r-1][c-1]).trim() : '';
   const gn = (r,c) => { const v = A[r-1] && A[r-1][c-1]; return (typeof v === 'number') ? v : parseFloat(v) || 0; };
-  const ant = {
-    nombreEECC: g(7, 5), rut: g(8, 5), nombreContrato: g(9, 5), numContrato: g(10, 5),
-    gerencia: g(11, 5), adminEECC: g(12, 5), correoEECC: g(13, 5),
-    adminCodelco: g(14, 5), correoCodelco: g(15, 5), categoria: g(16, 5) || 'B',
-    auditor: g(7, 15), correoAuditor: g(8, 15), fechaAuditoria: g(9, 15) || todayISO(),
+  const gRaw = (r,c) => (A[r-1] && A[r-1][c-1] != null) ? A[r-1][c-1] : null;
+
+  // Helper para fechas Excel
+  const parseFecha = (v) => {
+    if(!v) return todayISO();
+    if(v instanceof Date) return v.toISOString().slice(0,10);
+    const s = String(v).trim();
+    // Formato "2026-07-09 00:00:00" o "2026-07-09"
+    const m = s.match(/(\d{4})-(\d{2})-(\d{2})/);
+    if(m) return `${m[1]}-${m[2]}-${m[3]}`;
+    // Formato dd/mm/yyyy
+    const m2 = s.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+    if(m2) return `${m2[3]}-${m2[2].padStart(2,'0')}-${m2[1].padStart(2,'0')}`;
+    return s.slice(0,10);
   };
-  let resDoc = gn(11, 16), resTerr = gn(12, 16), descuento = gn(13, 16), resFinal = gn(10, 16);
+
+  // ==================== ANTECEDENTES (filas 7-16) ====================
+  // Columna E (5) = datos EECC, Columna O (15) = datos auditor
+  const ant = {
+    nombreEECC:    g(7, 5),
+    rut:           g(8, 5),
+    nombreContrato:g(9, 5),
+    numContrato:   g(10, 5),
+    gerencia:      g(11, 5),
+    adminEECC:     g(12, 5),
+    correoEECC:    g(13, 5),
+    adminCodelco:  g(14, 5),
+    correoCodelco: g(15, 5),
+    categoria:     g(16, 5) || 'B',
+    auditor:       g(7, 15),
+    correoAuditor: g(8, 15),
+    fechaAuditoria: parseFecha(gRaw(9, 15)),
+  };
+
+  // ==================== RESULTADOS GLOBALES ====================
+  // P11=Res.Doc, P12=Res.Terr, P13=Descuento, O14=Resultado Final
+  let resDoc    = gn(11, 16);  // Columna P (16)
+  let resTerr   = gn(12, 16);
+  let descuento = gn(13, 16);
+  let resFinal  = gn(14, 15);  // Columna O (15)
+  // Si viene como % (>1) convertir a decimal
   if(resDoc > 1) resDoc /= 100;
   if(resTerr > 1) resTerr /= 100;
   if(descuento > 1) descuento /= 100;
   if(resFinal > 1) resFinal /= 100;
+
+  // ==================== EVALUACIÓN DOCUMENTAL (filas 21-31) ====================
+  // Col B(2)=Título, F(6)=Ponderación, G(7)=Nivel obtenido, H(8)=% por Ítem
   const seccionesDoc = [];
   for(let r=21; r<=31; r++){
-    const titulo = g(r, 2);      // Columna B: título de sección
+    const titulo = g(r, 2);
     if(!titulo || titulo.length < 3) continue;
-    const m = titulo.match(/^([A-Z])[\s\.\-]/);
+    // Extraer código (A, B, C...)
+    const m = titulo.match(/^([A-K])[\s\.\-]/);
     const cod = m ? m[1] : titulo.charAt(0);
-    const ponderacion = gn(r, 6);    // Columna F: Ponderación base
-    const nivel = gn(r, 7);           // Columna G: Nivel de cumplimiento (valor ponderado obtenido)
-    const pctStr = String((A[r-1] && A[r-1][7]) || '').trim();  // Columna H: % por Ítem
-    const pct = pctStr.toUpperCase() === 'N/A' ? 0 : (parseFloat(pctStr) || 0);
+    const ponderacion = gn(r, 6);
+    const nivel = gn(r, 7);
+    const pctRaw = gRaw(r, 8);
+    const pctStr = String(pctRaw || '').trim().toUpperCase();
+    const isNA = pctStr === 'N/A' || pctStr === 'NA';
+    const pct = isNA ? 0 : (typeof pctRaw === 'number' ? pctRaw : parseFloat(pctStr) || 0);
     seccionesDoc.push({
       codigo: cod,
-      titulo: titulo,
-      ponderacion: ponderacion,
-      nivel: nivel,
-      pct: pct,
-      na: pctStr.toUpperCase() === 'N/A'
+      titulo: titulo.replace(/^[A-K][\.\-\s]+/, ''),  // Quitar "A.- " del inicio
+      ponderacion, nivel, pct, na: isNA
     });
   }
+
+  // ==================== EVALUACIÓN TERRENO (filas 21-28) ====================
+  // Col J(10)=Título, N(14)=Ponderación, O(15)=Resultado, P(16)=% por Ítem
   const seccionesTerr = [];
   for(let r=21; r<=28; r++){
-    const titulo = g(r, 10);     // Columna J: título de sección terreno
+    const titulo = g(r, 10);
     if(!titulo || titulo.length < 3) continue;
-    const ponderacion = gn(r, 14);   // Columna N: Ponderación base
-    // Los resultados de terreno están en columnas O-R según formato
-    const nivel = gn(r, 15) || ponderacion;   // Nivel de cumplimiento obtenido
-    const pctStr = String((A[r-1] && A[r-1][15]) || '').trim();
-    const pct = pctStr.toUpperCase() === 'N/A' ? 0 : (parseFloat(pctStr) || (ponderacion > 0 ? nivel/ponderacion : 0));
+    const ponderacion = gn(r, 14);
+    const nivel = gn(r, 15);
+    const pctRaw = gRaw(r, 16);
+    const pctStr = String(pctRaw || '').trim().toUpperCase();
+    const isNA = pctStr === 'N/A' || pctStr === 'NA';
+    let pct;
+    if(isNA) pct = 1;  // N/A en terreno se considera cumplido
+    else pct = typeof pctRaw === 'number' ? pctRaw : (parseFloat(pctStr) || (ponderacion > 0 ? nivel/ponderacion : 0));
     seccionesTerr.push({
       codigo: String(r - 20),
-      titulo: titulo,
-      ponderacion: ponderacion,
-      nivel: nivel,
-      pct: Math.min(1, pct)
+      titulo, ponderacion, nivel,
+      pct: Math.min(1, pct),
+      na: isNA
     });
   }
-  let nivel1Count = 0, nivel2Count = 0;
-  for(let c=2; c<=7; c++){ nivel1Count += gn(37, c); }
-  for(let c=10; c<=13; c++){ nivel2Count += gn(37, c); }
 
-  // Leer descripciones reales de los hallazgos (fila 42 para N1, filas 45-46 para N2)
+  // ==================== HALLAZGOS (fila 37 = conteos, 42-46 = descripciones) ====================
+  // Conteos totales (para compatibilidad)
+  let nivel1Count = 0, nivel2Count = 0;
+  for(let c=2; c<=7; c++){ nivel1Count += gn(38, c); }   // Fila 38 "Cantidad"
+  for(let c=10; c<=13; c++){ nivel2Count += gn(38, c); }
+
+  // Descripciones reales
   const hallazgosDetalle = [];
-  const tiposN1 = [
-    {col: 2, tipo: 'Terreno'}, {col: 6, tipo: 'Liderazgo'}, {col: 10, tipo: 'Controles Críticos'}
+  // Fila 42-43: Hallazgos N1
+  // Col B(2)=Terreno, F(6)=Liderazgo, J(10)=Controles Críticos
+  const camposN1 = [
+    {col: 2, tipo: 'Terreno'},
+    {col: 6, tipo: 'Liderazgo'},
+    {col: 10, tipo: 'Controles Críticos'}
   ];
-  for(const t of tiposN1){
+  for(const cf of camposN1){
     for(let r = 42; r <= 43; r++){
-      const desc = g(r, t.col);
+      const desc = g(r, cf.col);
       if(desc && desc.length > 5){
-        hallazgosDetalle.push({nivel: 1, tipo: t.tipo, descripcion: desc, descuento: 0.02});
+        hallazgosDetalle.push({
+          nivel: 1, tipo: cf.tipo,
+          descripcion: desc,
+          descuento: 0.02
+        });
       }
     }
   }
-  const tiposN2 = [
-    {col: 2, tipo: 'Terreno'}, {col: 6, tipo: 'Conductas'}, {col: 10, tipo: 'Aprendizaje'}
+  // Filas 45-46: Hallazgos N2
+  const camposN2 = [
+    {col: 2, tipo: 'Terreno'},
+    {col: 6, tipo: 'Conductas'},
+    {col: 10, tipo: 'Aprendizaje'}
   ];
-  for(const t of tiposN2){
+  for(const cf of camposN2){
     for(let r = 45; r <= 46; r++){
-      const desc = g(r, t.col);
+      const desc = g(r, cf.col);
       if(desc && desc.length > 5){
-        hallazgosDetalle.push({nivel: 2, tipo: t.tipo, descripcion: desc, descuento: 0.005});
+        hallazgosDetalle.push({
+          nivel: 2, tipo: cf.tipo,
+          descripcion: desc,
+          descuento: 0.005
+        });
       }
     }
   }
+
+  // ==================== OBSERVACIONES GENERALES (filas 47-48) ====================
+  const observaciones = g(48, 2);  // Fila 48 Col B
+
+  // ==================== PLAN DE ACCIÓN (hoja "Plan de Accion") ====================
   const plan = [];
   let hojaPlan = null;
   for(const sn of wb.SheetNames){
@@ -6235,22 +6300,55 @@ function procesarExcelRESSO(wb){
   }
   if(hojaPlan){
     const P = XLSX.utils.sheet_to_json(hojaPlan, {header:1, defval:null, raw:false});
-    for(let r=8; r<P.length && r<200; r++){
+    // Encabezados en fila 7, datos desde fila 8
+    for(let r=8; r<=P.length && r<200; r++){
       const row = P[r-1] || [];
-      const desc = row[2] || row[1];
-      if(!desc || String(desc).trim().length<3) continue;
+      const item     = String(row[1]||'').trim();  // B: Item RESSO
+      const hallazgo = String(row[2]||'').trim();  // C: Hallazgo detectado
+      const accion   = String(row[3]||'').trim();  // D: Acción correctiva
+      const respons  = String(row[4]||'').trim();  // E: Responsable
+      // Saltar filas vacías o encabezados repetidos
+      if(hallazgo.length < 3 && accion.length < 3) continue;
+      if(hallazgo.toLowerCase().includes('hallazgo detectado')) continue;
+
+      let desc = '';
+      if(item) desc = `[${item}] `;
+      if(hallazgo) desc += hallazgo;
+      if(accion) desc += (hallazgo ? '\n→ Acción: ' : 'Acción: ') + accion;
+
       plan.push({
         id: 'p-imp-'+r,
-        descripcion: String(desc).trim(),
-        responsable: String(row[4]||row[3]||'').trim(),
-        fechaCompromiso: String(row[5]||row[6]||todayISO()).trim().slice(0,10),
-        estado: String(row[7]||'Pendiente').trim(),
+        descripcion: desc.trim(),
+        responsable: respons,
+        fechaCompromiso: parseFecha(row[7]),  // H: Fecha cierre
+        estado: String(row[8]||'Pendiente').trim(),  // I: Estatus
+        cumplimiento: gn(r, 10) || 0,  // J: % Cumplimiento
       });
     }
   }
+
+  // ==================== BONIFICACIÓN ISO ====================
   const esperadoSinBonif = resDoc + resTerr - descuento;
   const bonifISO = Math.abs(resFinal - (esperadoSinBonif + 0.05)) < 0.005;
-  return {tipo: 'resso', antecedentes: ant, resultados: {resDocumental: resDoc, resTerreno: resTerr, descuento, resFinal, bonificacionISO: bonifISO}, seccionesDoc, seccionesTerr, hallazgosN1: nivel1Count, hallazgosN2: nivel2Count, hallazgosDetalle, plan};
+
+  return {
+    tipo: 'resso',
+    antecedentes: ant,
+    resultados: {
+      resDocumental: resDoc,
+      resTerreno: resTerr,
+      descuento,
+      resFinal,
+      bonificacionISO: bonifISO
+    },
+    seccionesDoc,
+    seccionesTerr,
+    hallazgosN1: nivel1Count,
+    hallazgosN2: nivel2Count,
+    hallazgosDetalle,
+    plan,
+    observaciones
+  };
 }
 
 function mostrarPreviewRESSO(datos, fileName){
@@ -6306,6 +6404,7 @@ function guardarImportacionRESSO(jsonStr){
     };
     aud.seccionesDocPrecargadas = datos.seccionesDoc;
     aud.seccionesTerrPrecargadas = datos.seccionesTerr;
+    aud.observaciones = datos.observaciones || '';
     aud.hallazgos = [];
     // Usar hallazgos con descripciones reales si existen
     if(datos.hallazgosDetalle && datos.hallazgosDetalle.length > 0){
@@ -6340,6 +6439,18 @@ function guardarImportacionRESSO(jsonStr){
     closeModal();
     toast(`Auditoría importada: ${aud.antecedentes.nombreEECC}`, 'ok');
     navigate('dashboard');
+
+    // Sincronizar a Supabase automáticamente (en background)
+    if(modoOnline()){
+      sb_guardarAuditoria(aud).then(result => {
+        if(result){
+          aud.supabase_id = result.id;
+          saveCurrent();
+          saveHistory(state.history);
+          toast('☁️ Sincronizada a la nube', 'ok');
+        }
+      }).catch(e => console.warn('Error al subir importada:', e));
+    }
   } catch(e){
     console.error(e);
     toast('Error al guardar: '+e.message, 'bad');

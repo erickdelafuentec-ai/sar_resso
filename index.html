@@ -961,6 +961,17 @@ a{color:var(--primary);text-decoration:none}
           <div><strong id="msStatEjecGer" style="color:#fff">0</strong>Gerencias</div>
         </div>
       </div>
+      <div class="ms-card" onclick="entrarModulo('consolidado')" style="background:linear-gradient(135deg, #5a3a1e 0%, #82562c 100%);color:#fff">
+        <div class="ms-card-icon" style="background:rgba(255,255,255,.15);color:#fff">🧩</div>
+        <div class="ms-sub" style="color:rgba(255,255,255,.85)">Informe Integrado</div>
+        <h2 style="color:#fff">Auditoría + RF Consolidado</h2>
+        <p style="color:rgba(255,255,255,.85)">Informe consolidado RESSO + RF: 9 criterios de evaluación, comparativo declarado vs verificado por RF, hallazgos integrados y análisis cruzado.</p>
+        <div class="ms-stats" style="color:rgba(255,255,255,.9)">
+          <div><strong id="msStatConsHist" style="color:#fff">0</strong>Informes</div>
+          <div><strong style="color:#fff">9</strong>Criterios</div>
+          <div><strong style="color:#fff">24</strong>RF</div>
+        </div>
+      </div>
     </div>
     <div class="ms-footer">
       <span id="msUserName">Usuario</span> · <a href="#" onclick="logout();return false" style="color:rgba(255,255,255,.7);text-decoration:underline">Cerrar sesión</a>
@@ -2491,6 +2502,8 @@ let state = {
   auditoria: emptyAuditoria(),
   history: [],  // se rellena después de declarar SEED_HISTORY
   historyRF: [],
+  historyConsolidado: [],
+  consolidado: null,
   seguimientoRF: null,
   planFilter: 'todos',
   planView: 'cards',
@@ -3714,6 +3727,8 @@ state.history = loadHistory();
 // Cargar también historial RF
 try { state.historyRF = JSON.parse(localStorage.getItem('rf_history') || '[]'); } catch(e){ state.historyRF = []; }
 try { state.seguimientoRF = JSON.parse(localStorage.getItem('rf_current') || 'null'); } catch(e){ state.seguimientoRF = null; }
+try { state.historyConsolidado = JSON.parse(localStorage.getItem('consolidado_history') || '[]'); } catch(e){ state.historyConsolidado = []; }
+try { state.consolidado = JSON.parse(localStorage.getItem('consolidado_current') || 'null'); } catch(e){ state.consolidado = null; }
 
 function saveCurrent(){ localStorage.setItem('resso_current', JSON.stringify(state.auditoria)); }
 function loadCurrent(){
@@ -3817,6 +3832,7 @@ async function doLogin(){
   // Cargar datos desde Supabase
   state.history = await sb_cargarAuditorias();
   state.historyRF = await sb_cargarSeguimientosRF();
+  state.historyConsolidado = await sb_cargarConsolidados();
   
   // Iniciar suscripciones en tiempo real
   sb_iniciarRealtime();
@@ -3851,6 +3867,8 @@ function mostrarSelectorModulo(){
     const hRF = (state.historyRF && state.historyRF.length) ? state.historyRF.length : JSON.parse(localStorage.getItem('rf_history') || '[]').length;
     ['msStatRessoHist','msStatRessoAud'].forEach(id=>{const e=document.getElementById(id); if(e) e.textContent = hRESSO;});
     ['msStatRfHist','msStatRfAud'].forEach(id=>{const e=document.getElementById(id); if(e) e.textContent = hRF;});
+    const hCons = (state.historyConsolidado && state.historyConsolidado.length) ? state.historyConsolidado.length : JSON.parse(localStorage.getItem('consolidado_history') || '[]').length;
+    const elCons = document.getElementById('msStatConsHist'); if(elCons) elCons.textContent = hCons;
     const elU = document.getElementById('msUserName');
     if(elU && state.user) elU.textContent = state.user.name || state.user.email || 'Usuario';
     
@@ -3884,6 +3902,11 @@ function entrarModulo(mod){
   if(mod === 'rf' && !state.seguimientoRF){
     state.seguimientoRF = emptyRF();
     saveCurrentRF();
+  }
+  // Asegurar que el informe consolidado esté inicializado si entramos a ese módulo
+  if(mod === 'consolidado' && !state.consolidado){
+    state.consolidado = emptyConsolidado();
+    saveCurrentConsolidado();
   }
   
   // Inicializar el resto del app
@@ -3946,7 +3969,23 @@ function buildSidebarParaModulo(mod){
     grupo2: [],
   };
   
-  const cfg = mod === 'rf' ? itemsRF : (mod === 'ejecutivo' ? itemsEjecutivo : itemsRESSO);
+  const itemsConsolidado = {
+    grupo1Title: 'Informe actual',
+    grupo1: [
+      {view:'dashboard', label:'Dashboard', icon:'<rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/>'},
+      {view:'antecedentes', label:'Antecedentes', icon:'<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/>'},
+      {view:'criterios', label:'9 Criterios', icon:'<path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>'},
+      {view:'rf', label:'Estado por RF', icon:'<path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>', badge:'badge-cons-rf', badgeVal:'0'},
+      {view:'hallazgos', label:'Hallazgos', icon:'<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>', badge:'badge-cons-hallazgos', badgeVal:'0'},
+      {view:'resumen', label:'Análisis Cruzado', icon:'<rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/>'},
+    ],
+    grupo2Title: 'Sistema',
+    grupo2: [
+      {view:'historial', label:'Historial', icon:'<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>', badge:'badge-cons-historial', badgeVal:'0'},
+    ],
+  };
+
+  const cfg = mod === 'rf' ? itemsRF : (mod === 'ejecutivo' ? itemsEjecutivo : (mod === 'consolidado' ? itemsConsolidado : itemsRESSO));
   
   const renderItem = (it, i) => `
     <div class="nav-item${i===0?' active':''}" data-view="${it.view}">
@@ -3986,6 +4025,9 @@ function buildTopbarParaModulo(mod){
   } else if(mod === 'ejecutivo'){
     if(brandName) brandName.textContent = 'SAR · Ejecutivo';
     if(brandSub) brandSub.textContent = 'Vista Consolidada';
+  } else if(mod === 'consolidado'){
+    if(brandName) brandName.textContent = 'SAR · Consolidado';
+    if(brandSub) brandSub.textContent = 'Auditoría + RF Integrado';
   } else {
     if(brandName) brandName.textContent = 'SAR · RESSO V9';
     if(brandSub) brandSub.textContent = 'SIGO-F-GE-148';
@@ -4019,6 +4061,29 @@ function buildTopbarParaModulo(mod){
         <button class="btn btn-ghost btn-sm" onclick="abrirImportador()" title="Importar Excel RF">
           <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
           <span>Importar</span>
+        </button>
+      `;
+    } else if(mod === 'consolidado'){
+      topActions.innerHTML = `
+        <button class="btn btn-ghost btn-sm" onclick="nuevoConsolidado()" title="Nuevo informe consolidado">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          <span>Nuevo</span>
+        </button>
+        <button class="btn btn-ghost btn-sm" onclick="calcularConsolidado(true)" title="Recalcular">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+          <span>Calcular</span>
+        </button>
+        <button class="btn btn-ghost btn-sm" onclick="guardarConsolidadoActual()" title="Guardar">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/></svg>
+          <span>Guardar</span>
+        </button>
+        <button class="btn btn-ghost btn-sm" onclick="abrirImportador()" title="Importar Excel Consolidado">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          <span>Importar</span>
+        </button>
+        <button class="btn btn-ghost btn-sm" onclick="exportarPDFConsolidado()" title="Exportar informe PDF">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M9 15h6M9 11h2"/></svg>
+          <span>PDF</span>
         </button>
       `;
     } else {
@@ -4082,6 +4147,8 @@ document.addEventListener('click', e=>{
       navigateRF(item.dataset.view);
     } else if(state.modulo === 'ejecutivo'){
       navigateEjecutivo(item.dataset.view);
+    } else if(state.modulo === 'consolidado'){
+      navigateConsolidado(item.dataset.view);
     } else {
       navigate(item.dataset.view);
     }
@@ -4274,6 +4341,24 @@ function render(){
       return;
     }
     
+    // Si estamos en módulo Consolidado, despachar a las funciones Consolidado
+    if(state.modulo === 'consolidado'){
+      calcularConsolidado(false);
+      if(view==='dashboard') c.innerHTML = renderDashboardConsolidado();
+      else if(view==='antecedentes') c.innerHTML = renderAntecedentesConsolidado();
+      else if(view==='criterios') c.innerHTML = renderCriteriosConsolidado();
+      else if(view==='rf') c.innerHTML = renderRFConsolidado();
+      else if(view==='hallazgos') c.innerHTML = renderHallazgosConsolidado();
+      else if(view==='resumen') c.innerHTML = renderResumenConsolidado();
+      else if(view==='historial') c.innerHTML = renderHistorialConsolidado();
+      else if(view==='ayuda') c.innerHTML = renderAyuda();
+      else c.innerHTML = '<div class="page"><div class="empty">Vista no encontrada</div></div>';
+      updateBadgesConsolidado();
+      if(view==='dashboard') setTimeout(drawDashboardConsolidadoCharts, 50);
+      if(view==='resumen') setTimeout(drawResumenConsolidadoCharts, 50);
+      return;
+    }
+
     // Módulo EJECUTIVO
     if(state.modulo === 'ejecutivo'){
       c.innerHTML = '<div class="page"><div class="card"><div class="card-b"><div class="empty" style="padding:40px;text-align:center"><div style="font-size:32px;margin-bottom:10px">⏳</div><p style="color:var(--text-2)">Cargando datos consolidados desde la nube...</p></div></div></div></div>';
@@ -6134,7 +6219,8 @@ function exportarPDF(){
 // ============================================================
 function abrirImportador(){
   const isRF = (state && state.modulo === 'rf');
-  const tituloMod = isRF ? 'Seguimiento de Riesgos de Fatalidad' : 'Auditoría RESSO V9';
+  const isConsolidado = (state && state.modulo === 'consolidado');
+  const tituloMod = isConsolidado ? 'Informe Consolidado RESSO + RF' : (isRF ? 'Seguimiento de Riesgos de Fatalidad' : 'Auditoría RESSO V9');
   const body = `
     <div style="padding:6px 0">
       <p style="margin:0 0 14px 0;font-size:13px;color:var(--text-2);line-height:1.55">
@@ -6159,6 +6245,11 @@ async function procesarExcelImport(file){
   try {
     const data = await file.arrayBuffer();
     const wb = XLSX.read(data, {type:'array', cellDates:true});
+    if(esFormatoConsolidado(wb)){
+      const datos = procesarExcelConsolidado(wb);
+      mostrarPreviewConsolidado(datos, file.name);
+      return;
+    }
     const isRF = detectarTipoExcel(wb);
     if(isRF){
       const datos = procesarExcelRF(wb);
@@ -6987,6 +7078,916 @@ function saveHistoryRF(){
   try { localStorage.setItem('rf_history', JSON.stringify(state.historyRF || [])); } catch(e){}
 }
 
+// ============================================================
+//  MÓDULO CONSOLIDADO — Auditoría Integrada RESSO + RF
+// ============================================================
+
+function emptyConsolidado(){
+  const rfs = Object.keys(RF_CATALOGO).map(codigo => ({
+    codigo, nombre: RF_CATALOGO[codigo].nombre, aplica: false,
+    declarado: null, verificado: null, revisor: '', hallazgosTexto: '',
+  }));
+  return {
+    id: 'cons-' + Date.now().toString(36),
+    creada: new Date().toISOString(),
+    antecedentes: {
+      gerencia:'', superintendencia:'', empresa:'', numContrato:'',
+      adminCodelco:'', adcEECC:'', expertoEECC:'', auditor:'',
+      fechaAuditoria: todayISO(), fechaInicio:'', fechaTermino:'',
+    },
+    criterios: [
+      {numero:1, titulo:'Aspectos Globales del RF', descripcion:'Definición, difusión y toma de conocimiento del los RF', ponderacion:0.05, obtenido:0},
+      {numero:2, titulo:'Identificación y registro de brechas', descripcion:'Gestión oportuna de brechas vinculadas a RF', ponderacion:0.05, obtenido:0},
+      {numero:3, titulo:'Planes de acción asociados', descripcion:'Planes de acción claros y medibles para la identificación de brechas por RF', ponderacion:0.05, obtenido:0},
+      {numero:4, titulo:'Asignación de responsables', descripcion:'Identificación de responsables por brechas de los RF', ponderacion:0.05, obtenido:0},
+      {numero:5, titulo:'Fechas de programación y cierre', descripcion:'Cumplimiento en plazos y forma con las fechas de cierre de brechas RF', ponderacion:0.05, obtenido:0},
+      {numero:6, titulo:'Consistencia en el porcentaje de cumplimiento de terreno', descripcion:'Cumplimiento del cierre de brechas vs lo identificado en terreno', ponderacion:0.20, obtenido:0},
+      {numero:7, titulo:'Evidencia y documentación', descripcion:'Cumplimiento y sustento documental de la gestión de los RF', ponderacion:0.15, obtenido:0},
+      {numero:8, titulo:'Sistema de confirmación de procesos y control de eventos significativos', descripcion:'Cumplimiento de CdP enfocado en los RF', ponderacion:0.20, obtenido:0},
+      {numero:9, titulo:'Revisión de controles críticos fallidos', descripcion:'Se registran las medidas correctivas y preventivas aplicadas por los RF', ponderacion:0.20, obtenido:0},
+    ],
+    rfDeclarados: 0,
+    resFinal: 0, clasificacion:'', color:'ok',
+    comparativa: { pctDeclarado:0, pctVerificado:0, diferencia:0 },
+    observacionesPorCriterio: [],
+    observacionesGenerales: '',
+    rfs,
+    hallazgos: [],
+    plan: [],
+    importadaDesde: null,
+  };
+}
+
+function getConsolidado(){
+  if(!state.consolidado) state.consolidado = emptyConsolidado();
+  return state.consolidado;
+}
+
+function nuevoConsolidado(){
+  if(!confirm('¿Iniciar un nuevo informe consolidado? Los cambios no guardados se perderán.')) return;
+  state.consolidado = emptyConsolidado();
+  saveCurrentConsolidado();
+  updateBadgesConsolidado();
+  navigateConsolidado('dashboard');
+  toast('Nuevo informe consolidado creado', 'ok');
+}
+
+function calcularConsolidado(showToast){
+  const aud = getConsolidado();
+  // El resultado global viene del Excel importado (ya calculado por la planilla oficial);
+  // si se editan manualmente los criterios, se puede recalcular como suma ponderada simple.
+  if(!aud.resFinal || aud.criterios.every(c => !c.obtenido)){
+    let suma = 0;
+    aud.criterios.forEach(c => { suma += (Number(c.obtenido)||0); });
+    aud.resFinal = Math.max(0, Math.min(1, suma));
+  }
+  const c = clasificar(aud.resFinal);
+  aud.clasificacion = c.txt; aud.color = c.color;
+  // Comparativa declarado vs verificado, a partir de los RF aplicables
+  const aplicables = aud.rfs.filter(r => r.aplica && r.declarado != null && r.verificado != null);
+  if(aplicables.length){
+    const sumDecl = aplicables.reduce((s,r)=>s+r.declarado,0);
+    const sumVerif = aplicables.reduce((s,r)=>s+r.verificado,0);
+    aud.comparativa.pctDeclarado = sumDecl / aplicables.length;
+    aud.comparativa.pctVerificado = sumVerif / aplicables.length;
+    aud.comparativa.diferencia = aud.comparativa.pctVerificado - aud.comparativa.pctDeclarado;
+  }
+  aud.rfDeclarados = aud.rfs.filter(r=>r.aplica).length || aud.rfDeclarados;
+  saveCurrentConsolidado();
+  updateBadgesConsolidado();
+  if(showToast) toast(`Cálculo actualizado: ${fmtPct(aud.resFinal)} (${c.txt})`, 'ok');
+  return aud;
+}
+
+function updateBadgesConsolidado(){
+  try {
+    const aud = getConsolidado();
+    const bH = document.getElementById('badge-cons-hallazgos'); if(bH) bH.textContent = (aud.hallazgos||[]).length;
+    const bR = document.getElementById('badge-cons-rf'); if(bR) bR.textContent = (aud.rfs||[]).filter(r=>r.aplica).length;
+    const bHist = document.getElementById('badge-cons-historial'); if(bHist) bHist.textContent = (state.historyConsolidado||[]).length;
+  } catch(e){}
+}
+
+function saveCurrentConsolidado(){
+  try { localStorage.setItem('consolidado_current', JSON.stringify(state.consolidado)); } catch(e){}
+}
+
+function saveHistoryConsolidado(){
+  try { localStorage.setItem('consolidado_history', JSON.stringify(state.historyConsolidado || [])); } catch(e){}
+}
+
+async function guardarConsolidadoActual(){
+  const aud = getConsolidado();
+  calcularConsolidado(false);
+  if(modoOnline()){
+    const result = await sb_guardarConsolidado(aud);
+    if(result){
+      aud.supabase_id = result.id;
+      saveCurrentConsolidado();
+      const existente = (state.historyConsolidado||[]).find(x => x.id === aud.id || x.supabase_id === aud.supabase_id);
+      if(!existente){ state.historyConsolidado = state.historyConsolidado || []; state.historyConsolidado.unshift(aud); }
+      saveHistoryConsolidado();
+      toast('☁️ Informe consolidado guardado en la nube', 'ok');
+    }
+  } else {
+    const existente = (state.historyConsolidado||[]).find(x => x.id === aud.id);
+    if(!existente){ state.historyConsolidado = state.historyConsolidado || []; state.historyConsolidado.unshift(aud); }
+    saveHistoryConsolidado();
+    toast('Informe consolidado guardado localmente', 'ok');
+  }
+  updateBadgesConsolidado();
+}
+
+async function sb_guardarConsolidado(aud){
+  if(!modoOnline()) return null;
+  try {
+    const ant = aud.antecedentes || {};
+    const userId = state.user && state.user.id;
+    if(!userId) throw new Error('Usuario no autenticado');
+    const esNueva = !aud.supabase_id;
+    const payload = {
+      creada_por: userId,
+      nombre_eecc: ant.empresa || 'Sin nombre',
+      num_contrato: ant.numContrato || null,
+      gerencia: ant.gerencia || null,
+      admin_codelco: ant.adminCodelco || null,
+      auditor: ant.auditor || null,
+      fecha_auditoria: (ant.fechaAuditoria && /^\d{4}-\d{2}-\d{2}/.test(String(ant.fechaAuditoria))) ? String(ant.fechaAuditoria).slice(0,10) : todayISO(),
+      res_final: aud.resFinal || 0,
+      clasificacion: aud.clasificacion || null,
+      importada_desde: aud.importadaDesde || null,
+      metadata: {
+        tipo: 'consolidado',
+        antecedentes: aud.antecedentes,
+        criterios: aud.criterios,
+        rfDeclarados: aud.rfDeclarados,
+        resFinal: aud.resFinal,
+        clasificacion: aud.clasificacion,
+        color: aud.color,
+        comparativa: aud.comparativa,
+        observacionesPorCriterio: aud.observacionesPorCriterio,
+        observacionesGenerales: aud.observacionesGenerales,
+        rfs: aud.rfs,
+        hallazgos: aud.hallazgos,
+        plan: aud.plan,
+      }
+    };
+    let result;
+    if(esNueva){
+      const { data, error } = await sb.from('auditorias_resso').insert(payload).select().single();
+      if(error) throw error;
+      result = data;
+    } else {
+      const upd = Object.assign({}, payload); delete upd.creada_por;
+      const { data, error } = await sb.from('auditorias_resso').update(upd).eq('id', aud.supabase_id).select();
+      if(error) throw error;
+      result = (data && data[0]) || null;
+      if(!result){
+        const { data: rows } = await sb.from('auditorias_resso').select('*').eq('id', aud.supabase_id).limit(1);
+        result = rows && rows[0];
+      }
+    }
+    return result;
+  } catch(e){
+    console.error('[SAR] Error guardando consolidado:', e);
+    toast('Error de sincronización: '+(e.message||e), 'bad');
+    return null;
+  }
+}
+
+async function sb_cargarConsolidados(){
+  if(!modoOnline()) return [];
+  try {
+    const { data: auds, error } = await sb.from('auditorias_resso').select('*')
+      .order('fecha_auditoria', { ascending: false }).limit(100);
+    if(error) throw error;
+    return (auds||[])
+      .filter(a => a.metadata && a.metadata.tipo === 'consolidado')
+      .map(a => {
+        const m = a.metadata || {};
+        return Object.assign(emptyConsolidado(), {
+          id: 'cons-sb-' + a.id.slice(0,8),
+          supabase_id: a.id,
+          creada: a.creada || new Date().toISOString(),
+          antecedentes: m.antecedentes || {},
+          criterios: m.criterios || [],
+          rfDeclarados: m.rfDeclarados || 0,
+          resFinal: Number(a.res_final) || m.resFinal || 0,
+          clasificacion: a.clasificacion || m.clasificacion || '',
+          color: m.color || 'ok',
+          comparativa: m.comparativa || {pctDeclarado:0,pctVerificado:0,diferencia:0},
+          observacionesPorCriterio: m.observacionesPorCriterio || [],
+          observacionesGenerales: m.observacionesGenerales || '',
+          rfs: m.rfs || [],
+          hallazgos: m.hallazgos || [],
+          plan: m.plan || [],
+          importadaDesde: a.importada_desde || null,
+        });
+      });
+  } catch(e){
+    console.error('[SAR] Error cargando consolidados:', e);
+    return [];
+  }
+}
+
+function cargarConsolidadoDesdeHistorial(id){
+  const aud = (state.historyConsolidado||[]).find(x => x.id === id || x.supabase_id === id);
+  if(!aud) return;
+  state.consolidado = JSON.parse(JSON.stringify(aud));
+  saveCurrentConsolidado();
+  navigateConsolidado('dashboard');
+  toast('Informe consolidado cargado', 'ok');
+}
+
+async function eliminarConsolidado(id){
+  if(!confirm('¿Eliminar este informe consolidado? Esta acción no se puede deshacer.')) return;
+  const aud = (state.historyConsolidado||[]).find(x => x.id === id || x.supabase_id === id);
+  if(aud && aud.supabase_id && modoOnline()){
+    try { await sb.from('auditorias_resso').delete().eq('id', aud.supabase_id); } catch(e){ console.warn(e); }
+  }
+  state.historyConsolidado = (state.historyConsolidado||[]).filter(x => x.id !== id && x.supabase_id !== id);
+  saveHistoryConsolidado();
+  navigateConsolidado('historial');
+  toast('Informe eliminado', 'ok');
+}
+
+// ---------------- Importador Excel Consolidado ----------------
+
+function esFormatoConsolidado(wb){
+  const nombres = wb.SheetNames.map(s=>s.trim());
+  return nombres.includes('Informe Auditoría') && nombres.includes('Auditoría RF') && nombres.includes('Hallazgos');
+}
+
+function procesarExcelConsolidado(wb){
+  const parseFecha = (v) => {
+    if(!v) return todayISO();
+    if(v instanceof Date) return v.toISOString().slice(0,10);
+    const s = String(v).trim();
+    const m = s.match(/(\d{4})-(\d{2})-(\d{2})/);
+    if(m) return `${m[1]}-${m[2]}-${m[3]}`;
+    const m3 = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
+    if(m3){ let y=m3[3]; if(y.length===2) y='20'+y; return `${y}-${m3[1].padStart(2,'0')}-${m3[2].padStart(2,'0')}`; }
+    return s.slice(0,10);
+  };
+  const parsePct = (v) => {
+    if(v == null || v === '') return null;
+    const s = String(v).trim().toUpperCase();
+    if(s === 'N/A' || s === 'NA') return null;
+    const num = (typeof v === 'number') ? v : parseFloat(s.replace('%','').replace(',','.'));
+    if(isNaN(num)) return null;
+    return num > 1 ? num/100 : num;
+  };
+
+  // ---- Hoja "Informe Auditoría" ----
+  const hInf = wb.Sheets['Informe Auditoría'];
+  const A = sheetToArrayA1(hInf);
+  const g = (r,c) => (A[r-1] && A[r-1][c-1] != null) ? String(A[r-1][c-1]).trim() : '';
+  const gRaw = (r,c) => (A[r-1] && A[r-1][c-1] != null) ? A[r-1][c-1] : null;
+  const gn = (r,c) => { const v = A[r-1] && A[r-1][c-1]; return (typeof v === 'number') ? v : parseFloat(v) || 0; };
+
+  const antecedentes = {
+    gerencia: g(5,7), superintendencia: g(6,7), empresa: g(7,7), numContrato: String(gRaw(8,7)||''),
+    adcEECC: g(9,7), expertoEECC: g(10,7), auditor: g(11,7),
+    fechaAuditoria: parseFecha(gRaw(12,7)),
+    adminCodelco: '', fechaInicio: '', fechaTermino: '',
+  };
+  const clasifTexto = g(6,11); // K6
+
+  const criterios = [];
+  for(let r=15; r<=23; r++){
+    const numero = gRaw(r,2);
+    const titulo = g(r,3);
+    if(!titulo) continue;
+    criterios.push({
+      numero: Number(numero) || (criterios.length+1),
+      titulo,
+      descripcion: g(r,7),
+      ponderacion: gn(r,10),
+      obtenido: gn(r,11),
+    });
+  }
+  const rfDeclarados = Number(gRaw(24,7)) || 0;
+  const resFinal = (() => { const v = gn(24,11); return v > 1 ? v/100 : v; })();
+
+  // Observaciones por criterio: filas 26-30, columna E, referencian "Punto N"
+  const observacionesPorCriterio = [];
+  for(let r=26; r<=30; r++){
+    const texto = g(r,5);
+    if(!texto || texto.length < 5) continue;
+    const m = texto.match(/[Pp]unto\s*(\d+)/);
+    observacionesPorCriterio.push({ criterio: m ? Number(m[1]) : null, texto });
+  }
+  const observacionesGenerales = g(31,5);
+
+  // ---- Hoja "Auditoría RF" ----
+  const hRF = wb.Sheets['Auditoría RF'];
+  const B = sheetToArrayA1(hRF);
+  const gb = (r,c) => (B[r-1] && B[r-1][c-1] != null) ? String(B[r-1][c-1]).trim() : '';
+  const gbRaw = (r,c) => (B[r-1] && B[r-1][c-1] != null) ? B[r-1][c-1] : null;
+
+  antecedentes.adminCodelco = gb(6,7) || antecedentes.adminCodelco;
+  antecedentes.fechaInicio = gbRaw(10,7) ? parseFecha(gbRaw(10,7)) : '';
+  antecedentes.fechaTermino = gbRaw(10,9) ? parseFecha(gbRaw(10,9)) : '';
+
+  const pctDeclarado = parsePct(gbRaw(7,10)) || 0;
+  const pctVerificado = parsePct(gbRaw(7,11)) || 0;
+  const diferencia = (() => { const v = gbRaw(12,11); return typeof v === 'number' ? v : (parseFloat(v)||0); })();
+
+  const rfCatalogoCodigos = Object.keys(RF_CATALOGO);
+  const rfsMap = {};
+  rfCatalogoCodigos.forEach(codigo => { rfsMap[codigo] = { codigo, nombre: RF_CATALOGO[codigo].nombre, aplica:false, declarado:null, verificado:null, revisor:'', hallazgosTexto:'' }; });
+  for(let r=18; r<=42; r++){
+    let codigo = gb(r,2);
+    if(!codigo || !codigo.toUpperCase().startsWith('RF')) continue;
+    codigo = codigo.toUpperCase();
+    const declarado = parsePct(gbRaw(r,7));
+    const verificado = parsePct(gbRaw(r,8));
+    const entry = {
+      codigo,
+      nombre: gb(r,3) || (RF_CATALOGO[codigo] ? RF_CATALOGO[codigo].nombre : codigo),
+      aplica: declarado != null || verificado != null,
+      declarado, verificado,
+      revisor: gb(r,9),
+      hallazgosTexto: gb(r,10),
+    };
+    rfsMap[codigo] = entry;
+  }
+  const rfs = rfCatalogoCodigos.map(c => rfsMap[c]);
+
+  // ---- Hoja "Hallazgos" ----
+  const hHal = wb.Sheets['Hallazgos'];
+  const C = sheetToArrayA1(hHal);
+  const gc = (r,c) => (C[r-1] && C[r-1][c-1] != null) ? String(C[r-1][c-1]).trim() : '';
+  const hallazgos = [];
+  for(let r=2; r<=C.length; r++){
+    const item = gc(r,1);
+    const hallazgo = gc(r,8);
+    if(!item && !hallazgo) continue;
+    hallazgos.push({
+      id: 'h-cons-' + (r-1),
+      item, tipo: gc(r,2), rf: gc(r,3).toUpperCase(), responsable: gc(r,4),
+      control: gc(r,5), requisito: gc(r,6), evidencia: gc(r,7),
+      hallazgo, planAccion: gc(r,10), estado: 'Abierto',
+    });
+  }
+
+  return {
+    antecedentes, criterios, rfDeclarados, resFinal,
+    clasifTexto, comparativa: { pctDeclarado, pctVerificado, diferencia },
+    observacionesPorCriterio, observacionesGenerales,
+    rfs, hallazgos,
+  };
+}
+
+function mostrarPreviewConsolidado(datos, filename){
+  const prev = document.getElementById('impPreview');
+  const c = clasificar(datos.resFinal);
+  const colorMap = { ok:'var(--ok)', warn:'var(--warn)', bad:'var(--bad)' };
+  prev.innerHTML = `
+    <div style="padding:14px;background:#f5f5f4;border-radius:8px;font-size:13px">
+      <div style="display:flex;justify-content:space-between;margin-bottom:8px">
+        <b>📁 ${escapeHtml(filename)}</b>
+        <span style="color:var(--text-3)">Informe Consolidado RESSO+RF</span>
+      </div>
+      <div style="margin-bottom:8px"><b>${escapeHtml(datos.antecedentes.empresa||'Sin nombre')}</b> · Contrato ${escapeHtml(datos.antecedentes.numContrato||'—')}</div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:14px">
+        <div style="background:#fff;padding:10px;border-radius:8px;text-align:center"><div style="font-size:10px;color:var(--text-3);margin-bottom:2px">CRITERIOS</div><div style="font-size:18px;font-weight:800;color:var(--primary)">${datos.criterios.length}</div></div>
+        <div style="background:#fff;padding:10px;border-radius:8px;text-align:center"><div style="font-size:10px;color:var(--text-3);margin-bottom:2px">RF APLICABLES</div><div style="font-size:18px;font-weight:800;color:var(--primary)">${datos.rfs.filter(r=>r.aplica).length}</div></div>
+        <div style="background:#fff;padding:10px;border-radius:8px;text-align:center"><div style="font-size:10px;color:var(--text-3);margin-bottom:2px">HALLAZGOS</div><div style="font-size:18px;font-weight:800;color:var(--primary)">${datos.hallazgos.length}</div></div>
+        <div style="background:${colorMap[c.color]};padding:10px;border-radius:8px;text-align:center;color:#fff"><div style="font-size:10px;opacity:.9;margin-bottom:2px">RESULTADO</div><div style="font-size:20px;font-weight:800">${fmtPct(datos.resFinal)}</div><div style="font-size:10px;opacity:.95">${c.txt}</div></div>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button class="btn btn-ghost btn-sm" onclick="closeModal()">Cancelar</button>
+        <button class="btn btn-primary btn-sm" onclick='guardarImportacionConsolidado(${JSON.stringify(JSON.stringify(datos)).replace(/"/g,'&quot;')})'>Guardar como nuevo informe</button>
+      </div>
+    </div>
+  `;
+}
+
+function guardarImportacionConsolidado(jsonStr){
+  try {
+    const datos = JSON.parse(jsonStr);
+    const aud = emptyConsolidado();
+    aud.antecedentes = Object.assign(aud.antecedentes, datos.antecedentes);
+    aud.criterios = datos.criterios && datos.criterios.length ? datos.criterios : aud.criterios;
+    aud.rfDeclarados = datos.rfDeclarados;
+    aud.resFinal = datos.resFinal;
+    const c = clasificar(datos.resFinal);
+    aud.clasificacion = c.txt; aud.color = c.color;
+    aud.comparativa = datos.comparativa;
+    aud.observacionesPorCriterio = datos.observacionesPorCriterio || [];
+    aud.observacionesGenerales = datos.observacionesGenerales || '';
+    aud.rfs = datos.rfs;
+    aud.hallazgos = datos.hallazgos.map((h,i) => Object.assign({id:'h-imp-'+i}, h));
+    aud.plan = aud.hallazgos.filter(h => h.planAccion).map((h,i) => ({
+      id: 'p-imp-'+i, descripcion: h.planAccion, hallazgo: h.hallazgo,
+      responsable: h.responsable, fechaCompromiso: '', estado: 'Pendiente',
+    }));
+    aud.id = 'cons-imp-' + Date.now().toString(36);
+    aud.creada = new Date().toISOString();
+    aud.importadaDesde = 'Excel';
+    state.consolidado = aud;
+    saveCurrentConsolidado();
+    state.historyConsolidado = state.historyConsolidado || [];
+    state.historyConsolidado.unshift(aud);
+    saveHistoryConsolidado();
+    updateBadgesConsolidado();
+    closeModal();
+    toast(`Informe consolidado importado: ${aud.antecedentes.empresa}`, 'ok');
+    navigateConsolidado('dashboard');
+    if(modoOnline()){
+      sb_guardarConsolidado(aud).then(result => {
+        if(result){
+          aud.supabase_id = result.id;
+          saveCurrentConsolidado();
+          saveHistoryConsolidado();
+          toast('☁️ Sincronizado a la nube', 'ok');
+        }
+      }).catch(e => console.warn('Error al subir consolidado:', e));
+    }
+  } catch(e){
+    console.error(e);
+    toast('Error al guardar: '+e.message, 'bad');
+  }
+}
+
+// ---------------- Navegación módulo Consolidado ----------------
+const VIEW_TITLES_CONSOLIDADO = {
+  dashboard: ['Dashboard Consolidado', 'Resumen ejecutivo de la auditoría integrada'],
+  antecedentes: ['Antecedentes', 'Datos del contrato y partes'],
+  criterios: ['9 Criterios de Evaluación', 'Ponderación y resultado por criterio'],
+  rf: ['Estado por RF', 'Declarado vs Verificado por Riesgo de Fatalidad'],
+  hallazgos: ['Hallazgos Integrados', 'Hallazgos documentales y de terreno'],
+  resumen: ['Análisis Cruzado', 'Resumen por tipo, ítem y RF'],
+  historial: ['Historial', 'Informes consolidados guardados'],
+  ayuda: ['Acerca de', ''],
+};
+
+function navigateConsolidado(view){
+  state.currentView = view;
+  const titles = VIEW_TITLES_CONSOLIDADO[view] || ['',''];
+  const tb = document.getElementById('pageTitle'); if(tb) tb.textContent = titles[0];
+  const sbEl = document.getElementById('pageSubtitle'); if(sbEl) sbEl.textContent = titles[1];
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.toggle('active', n.dataset.view === view));
+  render();
+}
+
+// ---------------- VISTAS Consolidado ----------------
+
+function renderDashboardConsolidado(){
+  const aud = getConsolidado();
+  const ant = aud.antecedentes;
+  const c = clasificar(aud.resFinal);
+  const R = 56, CIRC = 2*Math.PI*R;
+  const finalNorm = Math.max(0, Math.min(1, aud.resFinal));
+  const dashOff = CIRC*(1-finalNorm);
+  const rfsAplicables = aud.rfs.filter(r=>r.aplica);
+  const hallDoc = aud.hallazgos.filter(h=>h.tipo==='Documental').length;
+  const hallTerr = aud.hallazgos.filter(h=>h.tipo==='Terreno').length;
+  const diffPct = aud.comparativa.diferencia;
+
+  if(!aud.hallazgos.length && !aud.antecedentes.empresa){
+    return `
+      <div class="page">
+        <div class="card">
+          <div class="card-b">
+            <div class="empty" style="padding:60px 20px;text-align:center">
+              <div style="font-size:32px;margin-bottom:10px">🧩</div>
+              <h4>Sin datos aún</h4>
+              <p style="color:var(--text-2)">Importa un informe consolidado desde Excel (botón <b>Importar</b> arriba) o carga uno guardado desde el <b>Historial</b>.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="page">
+      <div class="exec-header">
+        <div>
+          <h2>Informe Consolidado de Auditoría RESSO + RF</h2>
+          <div class="subtitle">${escapeHtml(ant.empresa||'—')} · Contrato ${escapeHtml(ant.numContrato||'—')} · ${escapeHtml(ant.gerencia||'')}</div>
+        </div>
+        <div class="exec-actions">
+          <button class="btn" onclick="exportarPDFConsolidado()" title="Exportar a PDF">📄 Exportar PDF</button>
+          <span class="exec-badge ${c.color}">${c.txt} · ${fmtPct(aud.resFinal)}</span>
+        </div>
+      </div>
+
+      <div class="exec-kpi-grid">
+        <div class="exec-kpi kc-final">
+          <div class="ek-label">Resultado Global</div>
+          <div class="ek-value">${fmtPct(aud.resFinal)}</div>
+          <div class="ek-sub">Clasificación: <b>${c.txt}</b></div>
+        </div>
+        <div class="exec-kpi kc-doc">
+          <div class="ek-label">% Declarado (RF)</div>
+          <div class="ek-value">${fmtPct(aud.comparativa.pctDeclarado)}</div>
+          <div class="ek-sub">Autoevaluación empresa</div>
+        </div>
+        <div class="exec-kpi kc-terr">
+          <div class="ek-label">% Verificado (RF)</div>
+          <div class="ek-value">${fmtPct(aud.comparativa.pctVerificado)}</div>
+          <div class="ek-sub">${diffPct<0?'▼':'▲'} ${fmtPct(Math.abs(diffPct))} vs declarado</div>
+        </div>
+        <div class="exec-kpi kc-hall">
+          <div class="ek-label">Hallazgos</div>
+          <div class="ek-value">${aud.hallazgos.length}</div>
+          <div class="ek-sub">${hallDoc} documental · ${hallTerr} terreno</div>
+        </div>
+        <div class="exec-kpi kc-plan">
+          <div class="ek-label">RF Aplicables</div>
+          <div class="ek-value">${rfsAplicables.length}</div>
+          <div class="ek-sub">de ${aud.rfs.length} RF del catálogo</div>
+        </div>
+        <div class="exec-kpi kc-desc">
+          <div class="ek-label">Auditor</div>
+          <div class="ek-value" style="font-size:15px">${escapeHtml(ant.auditor||'—')}</div>
+          <div class="ek-sub">${ant.fechaAuditoria||''}</div>
+        </div>
+      </div>
+
+      <div class="exec-row-3">
+        <div class="card">
+          <div class="card-h"><h3>Resultado Global</h3><span class="sub">Semáforo ejecutivo</span></div>
+          <div class="card-b">
+            <div style="display:grid;grid-template-columns:auto 1fr;gap:22px;align-items:center">
+              <div class="gauge-circle">
+                <svg viewBox="0 0 130 130">
+                  <circle class="gauge-bg" cx="65" cy="65" r="${R}"/>
+                  <circle class="gauge-fg ${c.color}" cx="65" cy="65" r="${R}"
+                    stroke-dasharray="${CIRC.toFixed(2)}" stroke-dashoffset="${dashOff.toFixed(2)}"/>
+                </svg>
+                <div class="gauge-text">${Math.round(aud.resFinal*100)}%</div>
+              </div>
+              <div class="rainbow-bars">
+                ${aud.criterios.map(cr => `
+                  <div class="rainbow-bar">
+                    <div class="rb-label" title="${escapeHtml(cr.descripcion||'')}">${cr.numero}. ${escapeHtml(cr.titulo)}</div>
+                    <div class="rb-track"><div class="rb-fill" style="width:${Math.min(100, cr.ponderacion>0?(cr.obtenido/cr.ponderacion*100):0).toFixed(1)}%"></div></div>
+                    <div class="rb-pct">${fmtPct(cr.obtenido)}</div>
+                  </div>
+                `).join('')}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      ${aud.observacionesGenerales ? `
+      <div class="card" style="margin-top:14px">
+        <div class="card-h"><h3>Observaciones Generales</h3></div>
+        <div class="card-b"><div style="white-space:pre-wrap;font-size:13px;color:var(--text-2)">${escapeHtml(aud.observacionesGenerales)}</div></div>
+      </div>` : ''}
+    </div>
+  `;
+}
+
+function drawDashboardConsolidadoCharts(){ /* el gauge es SVG puro, no requiere Chart.js */ }
+
+function renderAntecedentesConsolidado(){
+  const aud = getConsolidado();
+  const a = aud.antecedentes;
+  const campo = (label, key, tipo) => `
+    <div class="field">
+      <label>${label}</label>
+      <input type="${tipo||'text'}" value="${escapeHtml(a[key]||'')}" onchange="getConsolidado().antecedentes.${key}=this.value; saveCurrentConsolidado()">
+    </div>
+  `;
+  return `
+    <div class="page">
+      <div class="card">
+        <div class="card-h"><h3>Antecedentes Generales</h3></div>
+        <div class="card-b">
+          <div class="form-grid">
+            ${campo('Gerencia','gerencia')}
+            ${campo('Superintendencia / Dirección','superintendencia')}
+            ${campo('Empresa','empresa')}
+            ${campo('N° Contrato','numContrato')}
+            ${campo('Administrador Codelco','adminCodelco')}
+            ${campo('Adm. Contrato EECC','adcEECC')}
+            ${campo('Experto EECC','expertoEECC')}
+            ${campo('Auditor(es)','auditor')}
+            ${campo('Fecha Auditoría','fechaAuditoria','date')}
+            ${campo('Fecha Inicio Contrato','fechaInicio','date')}
+            ${campo('Fecha Término Contrato','fechaTermino','date')}
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderCriteriosConsolidado(){
+  const aud = getConsolidado();
+  const filas = aud.criterios.map((cr,i) => {
+    const pct = cr.ponderacion>0 ? (cr.obtenido/cr.ponderacion) : 0;
+    const cls = pct>=0.9?'ok':pct>=0.7?'warn':'bad';
+    const obs = (aud.observacionesPorCriterio||[]).filter(o=>o.criterio===cr.numero);
+    return `
+      <tr>
+        <td style="text-align:center;font-weight:700">${cr.numero}</td>
+        <td>
+          <div style="font-weight:600">${escapeHtml(cr.titulo)}</div>
+          <div style="font-size:12px;color:var(--text-3)">${escapeHtml(cr.descripcion||'')}</div>
+          ${obs.map(o=>`<div style="font-size:12px;color:var(--bad);margin-top:4px">⚠ ${escapeHtml(o.texto)}</div>`).join('')}
+        </td>
+        <td style="text-align:center">${fmtPct(cr.ponderacion)}</td>
+        <td style="text-align:center;font-weight:700" class="text-${cls}">${fmtPct(cr.obtenido)}</td>
+        <td style="min-width:140px">
+          <div class="rb-track"><div class="rb-fill ${cls}" style="width:${Math.min(100,pct*100).toFixed(1)}%"></div></div>
+        </td>
+      </tr>
+    `;
+  }).join('');
+  return `
+    <div class="page">
+      <div class="card">
+        <div class="card-h"><h3>9 Criterios de Evaluación</h3><span class="sub">Según Anexo 6 RESSO V.10</span></div>
+        <div class="card-b">
+          <table class="tabla">
+            <thead><tr><th>#</th><th>Criterio</th><th>Ponderación</th><th>Obtenido</th><th>Avance</th></tr></thead>
+            <tbody>${filas}</tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderRFConsolidado(){
+  const aud = getConsolidado();
+  const filter = state.consFilterRF || 'todos';
+  let rfs = aud.rfs;
+  if(filter==='aplica') rfs = rfs.filter(r=>r.aplica);
+  if(filter==='hallazgos') rfs = rfs.filter(r=>r.hallazgosTexto);
+  const filas = rfs.map(r => {
+    if(!r.aplica){
+      return `<tr style="opacity:.5"><td>${r.codigo}</td><td>${escapeHtml(r.nombre)}</td><td colspan="4" style="text-align:center;color:var(--text-3)">No aplica</td></tr>`;
+    }
+    const diff = (r.verificado!=null && r.declarado!=null) ? (r.verificado - r.declarado) : null;
+    const cls = r.verificado>=0.9?'ok':r.verificado>=0.7?'warn':'bad';
+    return `
+      <tr>
+        <td style="font-weight:700">${r.codigo}</td>
+        <td>${escapeHtml(r.nombre)}</td>
+        <td style="text-align:center">${r.declarado!=null?fmtPct(r.declarado):'—'}</td>
+        <td style="text-align:center;font-weight:700" class="text-${cls}">${r.verificado!=null?fmtPct(r.verificado):'—'}</td>
+        <td style="text-align:center" class="${diff!=null && diff<0?'text-bad':'text-ok'}">${diff!=null?((diff<0?'▼ ':'▲ ')+fmtPct(Math.abs(diff))):'—'}</td>
+        <td style="font-size:12px;color:var(--text-2)">${escapeHtml(r.hallazgosTexto||'')}</td>
+      </tr>
+    `;
+  }).join('');
+  return `
+    <div class="page">
+      <div class="card">
+        <div class="card-h">
+          <h3>Estado por Riesgo de Fatalidad</h3>
+          <div class="chip-filters" style="margin:0">
+            <button class="chip-filter ${filter==='todos'?'active':''}" onclick="state.consFilterRF='todos';render()">Todos (${aud.rfs.length})</button>
+            <button class="chip-filter ${filter==='aplica'?'active':''}" onclick="state.consFilterRF='aplica';render()">Aplicables (${aud.rfs.filter(r=>r.aplica).length})</button>
+            <button class="chip-filter ${filter==='hallazgos'?'active':''}" onclick="state.consFilterRF='hallazgos';render()">Con hallazgos (${aud.rfs.filter(r=>r.hallazgosTexto).length})</button>
+          </div>
+        </div>
+        <div class="card-b">
+          <table class="tabla">
+            <thead><tr><th>RF</th><th>Nombre</th><th>Declarado</th><th>Verificado</th><th>Diferencia</th><th>Hallazgos / Controles</th></tr></thead>
+            <tbody>${filas}</tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderHallazgosConsolidado(){
+  const aud = getConsolidado();
+  const fTipo = state.consFilterTipo || 'todos';
+  const fRF = state.consFilterHallRF || 'todos';
+  let hs = aud.hallazgos;
+  if(fTipo!=='todos') hs = hs.filter(h=>h.tipo===fTipo);
+  if(fRF!=='todos') hs = hs.filter(h=>h.rf===fRF);
+  const rfsUnicos = [...new Set(aud.hallazgos.map(h=>h.rf).filter(Boolean))].sort();
+
+  const filas = hs.map((h,i) => `
+    <tr>
+      <td style="font-size:12px">${escapeHtml(h.item||'')}</td>
+      <td><span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;background:${h.tipo==='Terreno'?'rgba(192,57,43,.12)':'rgba(42,42,40,.08)'};color:${h.tipo==='Terreno'?'var(--bad)':'var(--text)'}">${escapeHtml(h.tipo||'')}</span></td>
+      <td style="font-weight:700">${escapeHtml(h.rf||'')}</td>
+      <td style="font-size:12px">${escapeHtml(h.responsable||'')}</td>
+      <td style="font-size:12px;max-width:220px">${escapeHtml(h.hallazgo||'')}</td>
+      <td style="font-size:12px">
+        <textarea rows="2" style="width:100%;font-size:12px" onchange="getConsolidado().hallazgos.find(x=>x.id==='${h.id}').planAccion=this.value; saveCurrentConsolidado()">${escapeHtml(h.planAccion||'')}</textarea>
+      </td>
+      <td>
+        <select onchange="getConsolidado().hallazgos.find(x=>x.id==='${h.id}').estado=this.value; saveCurrentConsolidado()">
+          <option value="Abierto" ${h.estado==='Abierto'?'selected':''}>Abierto</option>
+          <option value="En Proceso" ${h.estado==='En Proceso'?'selected':''}>En Proceso</option>
+          <option value="Cerrado" ${h.estado==='Cerrado'?'selected':''}>Cerrado</option>
+        </select>
+      </td>
+    </tr>
+  `).join('');
+
+  return `
+    <div class="page">
+      <div class="card">
+        <div class="card-h">
+          <h3>Hallazgos Integrados (${hs.length}/${aud.hallazgos.length})</h3>
+          <div class="chip-filters" style="margin:0">
+            <button class="chip-filter ${fTipo==='todos'?'active':''}" onclick="state.consFilterTipo='todos';render()">Todos</button>
+            <button class="chip-filter ${fTipo==='Documental'?'active':''}" onclick="state.consFilterTipo='Documental';render()">Documental</button>
+            <button class="chip-filter ${fTipo==='Terreno'?'active':''}" onclick="state.consFilterTipo='Terreno';render()">Terreno</button>
+          </div>
+          <select style="margin-left:10px" onchange="state.consFilterHallRF=this.value;render()">
+            <option value="todos">Todos los RF</option>
+            ${rfsUnicos.map(rf=>`<option value="${rf}" ${fRF===rf?'selected':''}>${rf}</option>`).join('')}
+          </select>
+        </div>
+        <div class="card-b">
+          <table class="tabla">
+            <thead><tr><th>Ítem</th><th>Tipo</th><th>RF</th><th>Responsable</th><th>Hallazgo</th><th>Plan de Acción</th><th>Estado</th></tr></thead>
+            <tbody>${filas || '<tr><td colspan="7" style="text-align:center;color:var(--text-3);padding:20px">Sin hallazgos</td></tr>'}</tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function calcResumenConsolidado(){
+  const aud = getConsolidado();
+  const porTipo = {};
+  const porItem = {};
+  const porRF = {};
+  aud.hallazgos.forEach(h => {
+    const tipo = h.tipo || 'Sin tipo';
+    const item = h.item || 'Sin ítem';
+    const rf = h.rf || 'Sin RF';
+    porTipo[tipo] = (porTipo[tipo]||0) + 1;
+    porItem[item] = (porItem[item]||0) + 1;
+    porRF[rf] = (porRF[rf]||0) + 1;
+  });
+  return { porTipo, porItem, porRF };
+}
+
+function renderResumenConsolidado(){
+  const aud = getConsolidado();
+  const { porTipo, porItem, porRF } = calcResumenConsolidado();
+  const totalH = aud.hallazgos.length;
+  if(!totalH){
+    return `<div class="page"><div class="card"><div class="card-b"><div class="empty" style="padding:40px;text-align:center">Sin hallazgos para analizar</div></div></div></div>`;
+  }
+  const rankingRF = Object.entries(porRF).sort((a,b)=>b[1]-a[1]);
+  const rankingItem = Object.entries(porItem).sort((a,b)=>b[1]-a[1]);
+  return `
+    <div class="page">
+      <div class="exec-row-3">
+        <div class="card">
+          <div class="card-h"><h3>Por Tipo</h3></div>
+          <div class="card-b"><canvas id="consChartTipo" height="180"></canvas></div>
+        </div>
+        <div class="card">
+          <div class="card-h"><h3>Por Ítem de Evaluación</h3></div>
+          <div class="card-b">
+            ${rankingItem.map(([k,v]) => `
+              <div class="rainbow-bar">
+                <div class="rb-label">${escapeHtml(k)}</div>
+                <div class="rb-track"><div class="rb-fill" style="width:${(v/totalH*100).toFixed(1)}%"></div></div>
+                <div class="rb-pct">${v}</div>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-h"><h3>Por Riesgo de Fatalidad</h3></div>
+          <div class="card-b">
+            ${rankingRF.map(([k,v]) => `
+              <div class="rainbow-bar">
+                <div class="rb-label">${escapeHtml(k)}</div>
+                <div class="rb-track"><div class="rb-fill bad" style="width:${(v/totalH*100).toFixed(1)}%"></div></div>
+                <div class="rb-pct">${v}</div>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function drawResumenConsolidadoCharts(){
+  const { porTipo } = calcResumenConsolidado();
+  const ctx = document.getElementById('consChartTipo');
+  if(ctx && window.Chart){
+    const labels = Object.keys(porTipo);
+    const data = Object.values(porTipo);
+    new Chart(ctx, {
+      type:'doughnut',
+      data:{ labels, datasets:[{ data, backgroundColor:['#E87722','#2a2a28','#5a8f3d','#c0392b'], borderColor:'#fff', borderWidth:3 }] },
+      options:{ cutout:'65%', plugins:{ legend:{position:'bottom',labels:{color:'#52524f',font:{size:11}}} } }
+    });
+  }
+}
+
+function renderHistorialConsolidado(){
+  const items = state.historyConsolidado || [];
+  const filas = items.map(a => {
+    const c = clasificar(a.resFinal||0);
+    return `
+      <tr>
+        <td>${escapeHtml(a.antecedentes.empresa||'—')}</td>
+        <td>${escapeHtml(a.antecedentes.numContrato||'—')}</td>
+        <td>${a.antecedentes.fechaAuditoria||''}</td>
+        <td class="text-${c.color}" style="font-weight:700">${fmtPct(a.resFinal||0)}</td>
+        <td>${c.txt}</td>
+        <td>
+          <button class="btn btn-ghost btn-sm" onclick="cargarConsolidadoDesdeHistorial('${a.id}')">Abrir</button>
+          <button class="btn btn-ghost btn-sm" onclick="eliminarConsolidado('${a.id}')" title="Eliminar">🗑️</button>
+        </td>
+      </tr>
+    `;
+  }).join('');
+  return `
+    <div class="page">
+      <div class="card">
+        <div class="card-h"><h3>Historial de Informes Consolidados (${items.length})</h3></div>
+        <div class="card-b">
+          <table class="tabla">
+            <thead><tr><th>Empresa</th><th>Contrato</th><th>Fecha</th><th>Resultado</th><th>Clasificación</th><th></th></tr></thead>
+            <tbody>${filas || '<tr><td colspan="6" style="text-align:center;color:var(--text-3);padding:20px">Sin informes guardados aún</td></tr>'}</tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+// ---------------- Exportar PDF Consolidado ----------------
+function exportarPDFConsolidado(){
+  const aud = getConsolidado();
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({unit:'mm', format:'a4'});
+  const pageW = 210;
+  const c = clasificar(aud.resFinal);
+  const ant = aud.antecedentes;
+
+  doc.setFontSize(16); doc.setTextColor(30,30,28);
+  doc.text('Informe Consolidado de Auditoría RESSO + RF', 14, 18);
+  doc.setFontSize(10); doc.setTextColor(90,90,85);
+  doc.text(`${ant.empresa||''} · Contrato ${ant.numContrato||''}`, 14, 25);
+  doc.text(`Gerencia: ${ant.gerencia||''} · Auditor: ${ant.auditor||''} · Fecha: ${ant.fechaAuditoria||''}`, 14, 30);
+
+  doc.setFontSize(12); doc.setTextColor(30,30,28);
+  doc.text(`Resultado Global: ${fmtPct(aud.resFinal)} (${c.txt})`, 14, 40);
+  doc.text(`Declarado: ${fmtPct(aud.comparativa.pctDeclarado)}   Verificado: ${fmtPct(aud.comparativa.pctVerificado)}`, 14, 46);
+
+  doc.autoTable({
+    startY: 52,
+    head: [['#','Criterio','Ponderación','Obtenido']],
+    body: aud.criterios.map(cr => [cr.numero, cr.titulo, fmtPct(cr.ponderacion), fmtPct(cr.obtenido)]),
+    styles:{fontSize:8}, headStyles:{fillColor:[42,42,40]},
+  });
+
+  let y = doc.lastAutoTable.finalY + 8;
+  doc.setFontSize(12); doc.text('Estado por Riesgo de Fatalidad (aplicables)', 14, y);
+  doc.autoTable({
+    startY: y+4,
+    head: [['RF','Nombre','Declarado','Verificado','Diferencia']],
+    body: aud.rfs.filter(r=>r.aplica).map(r => [
+      r.codigo, r.nombre,
+      r.declarado!=null?fmtPct(r.declarado):'—',
+      r.verificado!=null?fmtPct(r.verificado):'—',
+      (r.declarado!=null && r.verificado!=null) ? fmtPct(r.verificado-r.declarado) : '—',
+    ]),
+    styles:{fontSize:8}, headStyles:{fillColor:[42,42,40]},
+  });
+
+  if(aud.hallazgos.length){
+    doc.addPage();
+    doc.setFontSize(12); doc.text('Hallazgos Integrados', 14, 16);
+    doc.autoTable({
+      startY: 20,
+      head: [['Ítem','Tipo','RF','Hallazgo','Plan de Acción']],
+      body: aud.hallazgos.map(h => [h.item||'', h.tipo||'', h.rf||'', h.hallazgo||'', h.planAccion||'']),
+      styles:{fontSize:7, cellWidth:'wrap'}, headStyles:{fillColor:[42,42,40]},
+      columnStyles:{3:{cellWidth:60},4:{cellWidth:50}},
+    });
+  }
+
+  const total = doc.internal.getNumberOfPages();
+  for(let i=1;i<=total;i++){
+    doc.setPage(i);
+    doc.setFontSize(8); doc.setTextColor(120,130,150);
+    doc.text(`Página ${i} de ${total}  ·  Generado ${new Date().toLocaleString('es-CL')}  ·  Sistema SAR · Consolidado`, pageW/2, 290, {align:'center'});
+  }
+  const stamp = (ant.empresa||'INFORME').replace(/[^A-Za-z0-9]/g,'_').slice(0,20);
+  const fn = `Consolidado_${stamp}_${todayISO()}.pdf`;
+  doc.save(fn);
+  toast('PDF exportado: '+fn, 'ok');
+}
+
 function nuevoRF(){
   if(!confirm('¿Iniciar un nuevo seguimiento RF? Los cambios no guardados se perderán.')) return;
   state.seguimientoRF = emptyRF();
@@ -7045,7 +8046,7 @@ function loadRFFromHistory(id){
 
 function backupCompletoSAR(){
   try {
-    const claves = ['resso_current','resso_history','rf_current','rf_history','resso_user','app_modulo'];
+    const claves = ['resso_current','resso_history','rf_current','rf_history','consolidado_current','consolidado_history','resso_user','app_modulo'];
     const data = { _meta: { app:'SAR · Sistema de Auditoría RESSO V9', generado: new Date().toISOString(), version_respaldo: 1 } };
     claves.forEach(k => {
       const raw = localStorage.getItem(k);
@@ -8850,6 +9851,7 @@ window.addEventListener('load', async ()=>{
         // Cargar datos y activar realtime
         state.history = await sb_cargarAuditorias();
         state.historyRF = await sb_cargarSeguimientosRF();
+        state.historyConsolidado = await sb_cargarConsolidados();
         sb_iniciarRealtime();
         iniciarPollNotificaciones();
         
